@@ -1,0 +1,32 @@
+{
+  "eclipsed_by_you": {
+    "Monday": {
+      "times": ["11:00", "14:00"],
+      "caption": "#eclipsed_by_you"
+    },
+    "Tuesday": {
+      "times": ["11:00", "13:00"],
+      "caption": "#eclipsed_by_you"
+    },
+    "Wednesday": {
+      "times": ["11:00", "14:00"],
+      "caption": "#eclipsed_by_you"
+    },
+    "Thursday": {
+      "times": ["11:00", "14:00"],
+      "caption": "#eclipsed_by_you"
+    },
+    "Friday": {
+      "times": ["08:00", "12:00"],
+      "caption": "#eclipsed_by_you"
+    },
+    "Saturday": {
+      "times": ["09:00", "12:00", "17:00"],
+      "caption": "#eclipsed_by_you"
+    },
+    "Sunday": {
+      "times": ["09:00", "18:00"],
+      "caption": "#eclipsed_by_you"
+    }
+  }
+}
