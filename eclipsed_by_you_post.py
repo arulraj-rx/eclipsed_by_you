@@ -1,13 +1,12 @@
-# Updated eclipsed_by_you_post.py
 import os
 import time
 import json
 import logging
 import requests
 import dropbox
-from telegram import Bot
 from datetime import datetime
 from pytz import timezone
+from telegram import Bot
 
 class DropboxToInstagramUploader:
     INSTAGRAM_API_BASE = "https://graph.facebook.com/v18.0"
@@ -24,6 +23,7 @@ class DropboxToInstagramUploader:
         )
         self.logger = logging.getLogger()
 
+        # ENV variables
         self.instagram_access_token = os.getenv("IG_ECLIPSED_BY_YOU_TOKEN")
         self.instagram_account_id = os.getenv("IG_ECLIPSED_BY_YOU_ID")
         self.dropbox_app_key = os.getenv("DROPBOX_ECLIPSED_BY_YOU_APP_KEY")
@@ -82,7 +82,7 @@ class DropboxToInstagramUploader:
         media_type = "REELS" if name.lower().endswith((".mp4", ".mov")) else "IMAGE"
         temp_link = dbx.files_get_temporary_link(file.path_lower).link
 
-        self.send_message(f"🚀 Posting {name} | Type: {media_type}")
+        self.send_message(f"🚀 Posting: `{name}`\nType: {media_type}")
 
         upload_url = f"{self.INSTAGRAM_API_BASE}/{self.instagram_account_id}/media"
         data = {
@@ -96,7 +96,7 @@ class DropboxToInstagramUploader:
 
         res = requests.post(upload_url, data=data)
         if res.status_code != 200:
-            self.send_message(f"❌ Upload failed: {res.text}")
+            self.send_message(f"❌ Upload failed for `{name}`: {res.text}")
             return False
 
         creation_id = res.json()["id"]
@@ -116,15 +116,21 @@ class DropboxToInstagramUploader:
         )
         if pub.status_code == 200:
             dbx.files_delete_v2(file.path_lower)
-            self.send_message(f"✅ Posted {name} and deleted from Dropbox.")
+            self.send_message(f"✅ Posted `{name}` and deleted from Dropbox.")
             return True
         else:
-            self.send_message(f"❌ Publish failed: {pub.text}")
+            self.send_message(f"❌ Publish failed for `{name}`: {pub.text}")
             return False
 
     def run(self):
-        self.send_message(f"📡 Run started at {datetime.now(self.ist).strftime('%Y-%m-%d %H:%M:%S')}")
+        start_time = datetime.now(self.ist).strftime('%Y-%m-%d %H:%M:%S')
+        self.send_message(f"📡 Run started at {start_time}")
+
         try:
+            if not os.path.exists(self.daily_log_file):
+                with open(self.daily_log_file, 'w') as f:
+                    json.dump({"date": "", "count": 0}, f)
+
             count = self.read_log()
             if count >= self.max_posts_per_day:
                 self.send_message(f"🚫 Daily limit reached: {count}/{self.max_posts_per_day}")
@@ -137,12 +143,19 @@ class DropboxToInstagramUploader:
 
             dbx = dropbox.Dropbox(oauth2_access_token=token)
             files = self.list_dropbox_files(dbx)
+
+            self.send_message(f"📁 Dropbox files available: {len(files)}")
+
             if not files:
-                self.send_message("📭 No media files available.")
+                self.send_message("📭 No media files to post.")
                 return
 
             if self.post_to_instagram(dbx, files[0]):
                 self.update_log(count + 1)
+
+            # Show remaining files after post
+            remaining = self.list_dropbox_files(dbx)
+            self.send_message(f"📦 Files remaining in Dropbox: {len(remaining)}")
 
         except Exception as e:
             self.send_message(f"❌ Script error: {e}")
