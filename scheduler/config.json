@@ -1,32 +1,32 @@
 {
   "eclipsed_by_you": {
     "Monday": {
-      "times": ["10:45", "15:55", "20:30"],
-      "caption": "#MondayVibes 🌅"
+      "times": ["11:00", "14:00"],
+      "caption": "#eclipsed_by_you"
     },
     "Tuesday": {
-      "times": ["11:15", "16:00", "21:00"],
-      "caption": "#TuesdayTunes 🎧"
+      "times": ["11:00", "13:00"],
+      "caption": "#eclipsed_by_you"
     },
     "Wednesday": {
-      "times": ["10:30", "14:45", "19:15"],
-      "caption": "#MidweekMood 🌌"
+      "times": ["11:00", "14:00"],
+      "caption": "#eclipsed_by_you"
     },
     "Thursday": {
-      "times": ["11:00", "15:30", "20:00"],
-      "caption": "#ThrowbackThursday 🔙"
+      "times": ["11:00", "14:00"],
+      "caption": "#eclipsed_by_you"
     },
     "Friday": {
-      "times": ["10:50", "16:10", "21:10"],
-      "caption": "#FridayFeels 💃"
+      "times": ["08:00", "12:00"],
+      "caption": "#eclipsed_by_you"
     },
     "Saturday": {
-      "times": ["09:30", "13:45", "18:30"],
-      "caption": "#WeekendVibes ✨"
+      "times": ["09:00", "12:00", "17:00"],
+      "caption": "#eclipsed_by_you"
     },
     "Sunday": {
-      "times": ["18:44", "15:00", "17:39"],
-      "caption": "#eclipsed_by_you 🧘"
+      "times": ["09:00", "18:00"],
+      "caption": "#eclipsed_by_you"
     }
   }
 }
