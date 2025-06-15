@@ -1,5 +1,5 @@
 # .github/workflows/eclipsed_by_you.yml
-name: Post to Instagram
+name: eclipsed_by_you
 
 on:
   schedule:
