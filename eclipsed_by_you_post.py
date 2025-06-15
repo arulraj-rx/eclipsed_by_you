@@ -6,7 +6,7 @@ import requests
 import dropbox
 from datetime import datetime
 from pytz import timezone
-from telegram import Bot
+from telegram.bot import Bot  # FIXED: proper import for v13.15
 
 class DropboxToInstagramUploader:
     INSTAGRAM_API_BASE = "https://graph.facebook.com/v18.0"
@@ -44,7 +44,7 @@ class DropboxToInstagramUploader:
         try:
             self.telegram_bot.send_message(chat_id=self.telegram_chat_id, text=prefix + msg)
         except Exception as e:
-            self.logger.error(f"Telegram error: {e}")
+            self.logger.exception("Telegram error")
 
     def refresh_dropbox_token(self):
         r = requests.post(self.DROPBOX_TOKEN_URL, data={
