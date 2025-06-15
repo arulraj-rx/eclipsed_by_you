@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  post_job:
+  eclipsed_by_you:
     concurrency:
       group: eclipsed-by-you
       cancel-in-progress: true
