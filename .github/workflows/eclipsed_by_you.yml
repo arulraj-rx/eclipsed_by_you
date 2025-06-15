@@ -1,19 +1,16 @@
-name: Eclipsed By You
+name: Instagram Scheduler - ECLIPSED_BY_YOU
 
 on:
   schedule:
-    - cron: "10 2 * * *"   # 07:40 IST
-    - cron: "30 6 * * *"   # 12:00 IST
-    - cron: "45 10 * * *"  # 16:15 IST
-    - cron: "0 14 * * *"   # 19:30 IST
-    - cron: "15 18 * * *"  # 23:45 IST
-  workflow_dispatch:       # Allows manual trigger
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
 
 jobs:
-  post_ECLIPSED_BY_YOU:
+  post_job:
+    concurrency:
+      group: eclipsed-by-you
+      cancel-in-progress: true
     runs-on: ubuntu-latest
-    timeout-minutes: 14     # Ensures job exits before the next one starts
-
     env:
       IG_ECLIPSED_BY_YOU_TOKEN: ${{ secrets.IG_ECLIPSED_BY_YOU_TOKEN }}
       IG_ECLIPSED_BY_YOU_ID: ${{ secrets.IG_ECLIPSED_BY_YOU_ID }}
@@ -22,32 +19,20 @@ jobs:
       DROPBOX_ECLIPSED_BY_YOU_APP_SECRET: ${{ secrets.DROPBOX_ECLIPSED_BY_YOU_APP_SECRET }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      GITHUB_REPOSITORY: ${{ github.repository }}
-      MAX_WAIT_SECONDS: "600"        # Optional: use for retry/wait logic
-      PYTHONUNBUFFERED: 1            # Flush output immediately for live logs
-
     steps:
-      - name: 📥 Checkout Code
+      - name: Checkout
         uses: actions/checkout@v3
-        with:
-          fetch-depth: 1
 
-      - name: 🐍 Set up Python
+      - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.11"     # Recommended stable for 2024+
-          cache: 'pip'
+          python-version: "3.10"
 
-      - name: 📦 Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install dropbox requests python-telegram-bot==13.15 pynacl pytz
+      - name: Install dependencies
+        run: pip install dropbox requests python-telegram-bot==13.15 pytz pynacl
 
-      - name: 🚀 Run ECLIPSED_BY_YOU Posting Script
+      - name: Print current UTC time
+        run: date -u
+
+      - name: Run Script
         run: python eclipsed_by_you_post.py
-        continue-on-error: true  # Prevents failing the entire workflow even on errors
-
-      - name: ✅ Check for script errors
-        if: failure()
-        run: |
-          echo "⚠️ Script failed or exited with error code. Check logs or Telegram report."
