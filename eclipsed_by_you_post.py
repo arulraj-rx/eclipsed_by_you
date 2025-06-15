@@ -72,16 +72,15 @@ class DropboxToInstagramUploader:
                 sched_time = datetime.strptime(sched, "%H:%M").time()
                 target = now_ist.replace(hour=sched_time.hour, minute=sched_time.minute, second=0, microsecond=0)
                 delta = int((target - now_ist).total_seconds())
-                if 0 <= delta <= 600:
+                if -120 <= delta <= 600:
                     if delta > 0:
-                        self.logger.info(f"⏳ Sleeping {delta} seconds for schedule match: {sched}")
+                        self.logger.info(f"⏳ Sleeping {delta} seconds for match: {sched}")
                         time.sleep(delta)
                     return True, caption
-
             self.send_message(f"⏰ Not in schedule. Current: {now_str}, Allowed: {allowed_times}")
             return False, ""
         except Exception as e:
-            self.logger.error(f"Schedule read error: {e}")
+            self.logger.error(f"Schedule error: {e}")
             return False, ""
 
     def list_dropbox_files(self, dbx):
@@ -110,7 +109,7 @@ class DropboxToInstagramUploader:
         }
         url = f"{self.INSTAGRAM_API_BASE}/{self.instagram_account_id}/media"
         if media_type == "REELS":
-            data.update({"media_type": "REELS", "video_url": temp_link, "share_to_feed": "true"})
+            data.update({"media_type": "REELS", "video_url": temp_link, "share_to_feed": "false"})
         else:
             data["image_url"] = temp_link
 
@@ -165,6 +164,7 @@ class DropboxToInstagramUploader:
                 self.send_message("📭 No eligible media in Dropbox.")
                 return
 
+            # ONLY ONE FILE SHOULD BE TRIED PER RUN
             self.post_to_instagram(dbx, files[0], caption)
 
         except Exception as e:
@@ -173,4 +173,5 @@ class DropboxToInstagramUploader:
             duration = time.time() - self.start_time
             self.send_message(f"🏁 Run complete in {duration:.1f} sec")
 
-if __name__ == "__
+if __name__ == "__main__":
+    DropboxToInstagramUploader().run()
