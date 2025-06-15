@@ -1,6 +1,12 @@
-import os, time, json, logging, requests, dropbox
+# File: eclipsed_by_you_post.py
+import os
+import time
+import json
+import logging
+import requests
+import dropbox
 from telegram import Bot
-from datetime import datetime
+from datetime import datetime, timedelta
 from pytz import timezone, utc
 
 class DropboxToInstagramUploader:
@@ -12,8 +18,16 @@ class DropboxToInstagramUploader:
         self.ist = timezone('Asia/Kolkata')
         self.account_key = "eclipsed_by_you"
         self.schedule_file = "scheduler/config.json"
-        self.dropbox_folder = "/eclipsed.by.you"
 
+        # Logging
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s - %(levelname)s - %(message)s",
+            handlers=[logging.StreamHandler()]
+        )
+        self.logger = logging.getLogger()
+
+        # Secrets from GitHub environment
         self.instagram_access_token = os.getenv("IG_ECLIPSED_BY_YOU_TOKEN")
         self.instagram_account_id = os.getenv("IG_ECLIPSED_BY_YOU_ID")
         self.dropbox_app_key = os.getenv("DROPBOX_ECLIPSED_BY_YOU_APP_KEY")
@@ -22,15 +36,10 @@ class DropboxToInstagramUploader:
         self.telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
         self.telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
 
+        self.dropbox_folder = "/eclipsed.by.you"
         self.telegram_bot = Bot(token=self.telegram_bot_token)
-        self.start_time = time.time()
 
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s - %(levelname)s - %(message)s",
-            handlers=[logging.StreamHandler()]
-        )
-        self.logger = logging.getLogger()
+        self.start_time = time.time()
 
     def send_message(self, msg):
         prefix = f"[{self.script_name}]\n"
@@ -40,7 +49,7 @@ class DropboxToInstagramUploader:
             self.logger.error(f"Telegram send error: {e}")
 
     def refresh_dropbox_token(self):
-        self.logger.info("🔁 Refreshing Dropbox token...")
+        self.logger.info("Refreshing Dropbox token...")
         data = {
             "grant_type": "refresh_token",
             "refresh_token": self.dropbox_refresh_token,
@@ -49,14 +58,25 @@ class DropboxToInstagramUploader:
         }
         r = requests.post(self.DROPBOX_TOKEN_URL, data=data)
         if r.status_code == 200:
-            self.logger.info("✅ Dropbox token refreshed.")
-            return r.json().get("access_token")
+            new_token = r.json().get("access_token")
+            self.logger.info("Dropbox token refreshed.")
+            return new_token
         else:
-            self.send_message("❌ Dropbox refresh failed:\n" + r.text)
+            self.send_message("❌ Dropbox refresh failed: " + r.text)
             raise Exception("Dropbox refresh failed.")
 
+    def list_dropbox_files(self, dbx):
+        try:
+            files = dbx.files_list_folder(self.dropbox_folder).entries
+            valid_exts = ('.mp4', '.mov', '.jpg', '.jpeg', '.png')
+            return [f for f in files if f.name.lower().endswith(valid_exts)]
+        except Exception as e:
+            self.send_message(f"❌ Dropbox folder read failed: {e}")
+            return []
+
     def is_scheduled_time(self):
-        now_ist = datetime.now(utc).astimezone(self.ist)
+        now_utc = datetime.now(utc)
+        now_ist = now_utc.astimezone(self.ist)
         today = now_ist.strftime("%A")
         now_str = now_ist.strftime("%H:%M")
 
@@ -68,56 +88,51 @@ class DropboxToInstagramUploader:
             allowed_times = day_config.get("times", [])
             caption = day_config.get("caption", "")
 
-            for sched in allowed_times:
-                sched_time = datetime.strptime(sched, "%H:%M").time()
-                target = now_ist.replace(hour=sched_time.hour, minute=sched_time.minute, second=0, microsecond=0)
-                delta = int((target - now_ist).total_seconds())
-                if -120 <= delta <= 600:
+            for scheduled in allowed_times:
+                post_time = datetime.strptime(scheduled, "%H:%M").time()
+                scheduled_time = now_ist.replace(hour=post_time.hour, minute=post_time.minute, second=0, microsecond=0)
+                delta = int((scheduled_time - now_ist).total_seconds())
+                if 0 <= delta <= 600:
                     if delta > 0:
-                        self.logger.info(f"⏳ Sleeping {delta} seconds for match: {sched}")
+                        self.logger.info(f"Sleeping {delta} seconds for schedule match: {scheduled}")
                         time.sleep(delta)
                     return True, caption
-            self.send_message(f"⏰ Not in schedule. Current: {now_str}, Allowed: {allowed_times}")
-            return False, ""
-        except Exception as e:
-            self.logger.error(f"Schedule error: {e}")
-            return False, ""
 
-    def list_dropbox_files(self, dbx):
-        try:
-            files = dbx.files_list_folder(self.dropbox_folder).entries
-            valid = ('.mp4', '.mov', '.jpg', '.jpeg', '.png')
-            return [f for f in files if f.name.lower().endswith(valid)]
+            self.logger.info(f"⏰ Not in schedule. Current: {now_str}, Allowed: {allowed_times}")
+            self.send_message(f"⏰ Not in schedule. Current: {now_str}, Allowed: {allowed_times}")
+            return False, caption
+
         except Exception as e:
-            self.send_message(f"❌ Dropbox list error: {e}")
-            return []
+            self.logger.error(f"Schedule check failed: {e}")
+            return False, ""
 
     def post_to_instagram(self, dbx, file, caption):
         name = file.name
-        media_type = "REELS" if name.lower().endswith((".mp4", ".mov")) else "IMAGE"
+        ext = name.lower()
+        media_type = "REELS" if ext.endswith((".mp4", ".mov")) else "IMAGE"
+
         temp_link = dbx.files_get_temporary_link(file.path_lower).link
         file_size = f"{file.size / 1024 / 1024:.2f}MB"
         total_files = len(self.list_dropbox_files(dbx))
 
-        self.send_message(
-            f"🚀 Uploading: {name}\n📂 Type: {media_type}\n📐 Size: {file_size}\n📦 Total Before: {total_files}\n📝 Caption: {caption}"
-        )
+        self.send_message(f"🚀 Uploading: {name}\n📂 Type: {media_type}\n📐 Size: {file_size}\n📦 Remaining: {total_files}")
 
+        upload_url = f"{self.INSTAGRAM_API_BASE}/{self.instagram_account_id}/media"
         data = {
             "access_token": self.instagram_access_token,
             "caption": caption
         }
-        url = f"{self.INSTAGRAM_API_BASE}/{self.instagram_account_id}/media"
+
         if media_type == "REELS":
-            data.update({"media_type": "REELS", "video_url": temp_link, "share_to_feed": "false"})
+            data.update({"media_type": "REELS", "video_url": temp_link, "share_to_feed": "true"})
         else:
             data["image_url"] = temp_link
 
-        res = requests.post(url, data=data)
+        res = requests.post(upload_url, data=data)
         if res.status_code != 200:
             err = res.json().get("error", {}).get("message", "Unknown")
             code = res.json().get("error", {}).get("code", "N/A")
-            self.send_message(f"❌ Upload Failed: {name}\n🧾 {err} (Code {code})")
+            self.send_message(f"❌ Failed: {name}\n🧾 Error: {err}\n🪪 Code: {code}")
             return False
 
         creation_id = res.json()["id"]
@@ -125,26 +140,20 @@ class DropboxToInstagramUploader:
         if media_type == "REELS":
             for _ in range(12):
                 status = requests.get(
-                    f"{self.INSTAGRAM_API_BASE}/{creation_id}",
-                    params={"fields": "status_code", "access_token": self.instagram_access_token}
+                    f"{self.INSTAGRAM_API_BASE}/{creation_id}?fields=status_code&access_token={self.instagram_access_token}"
                 ).json()
                 if status.get("status_code") == "FINISHED":
                     break
                 elif status.get("status_code") == "ERROR":
-                    self.send_message(f"❌ IG Processing Failed: {name}")
+                    self.send_message(f"❌ IG processing failed: {name}")
                     return False
                 time.sleep(5)
 
-        pub = requests.post(
-            f"{self.INSTAGRAM_API_BASE}/{self.instagram_account_id}/media_publish",
-            data={"creation_id": creation_id, "access_token": self.instagram_access_token}
-        )
+        publish_url = f"{self.INSTAGRAM_API_BASE}/{self.instagram_account_id}/media_publish"
+        pub = requests.post(publish_url, data={"creation_id": creation_id, "access_token": self.instagram_access_token})
         if pub.status_code == 200:
-            self.send_message(f"✅ Uploaded: {name}")
-            try:
-                dbx.files_delete_v2(file.path_lower)
-            except Exception as e:
-                self.send_message(f"⚠️ File not deleted: {name}\n{e}")
+            self.send_message(f"✅ Uploaded: {name}\n📦 Files left: {total_files - 1}")
+            dbx.files_delete_v2(file.path_lower)
             return True
         else:
             self.send_message(f"❌ Publish failed: {name}\n{pub.text}")
@@ -156,22 +165,25 @@ class DropboxToInstagramUploader:
             scheduled, caption = self.is_scheduled_time()
             if not scheduled:
                 return
-            token = self.refresh_dropbox_token()
-            dbx = dropbox.Dropbox(oauth2_access_token=token)
+
+            access_token = self.refresh_dropbox_token()
+            dbx = dropbox.Dropbox(oauth2_access_token=access_token)
 
             files = self.list_dropbox_files(dbx)
             if not files:
-                self.send_message("📭 No eligible media in Dropbox.")
+                self.send_message("📭 No eligible media found in Dropbox.")
                 return
 
-            # ONLY ONE FILE SHOULD BE TRIED PER RUN
-            self.post_to_instagram(dbx, files[0], caption)
+            for file in files:
+                if self.post_to_instagram(dbx, file, caption):
+                    break  # only one post per run
 
         except Exception as e:
             self.send_message(f"❌ Script crashed:\n{str(e)}")
+            raise
         finally:
             duration = time.time() - self.start_time
-            self.send_message(f"🏁 Run complete in {duration:.1f} sec")
+            self.send_message(f"🏁 Run complete in {duration:.1f} seconds")
 
 if __name__ == "__main__":
     DropboxToInstagramUploader().run()
