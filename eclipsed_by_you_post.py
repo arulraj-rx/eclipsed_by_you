@@ -14,7 +14,6 @@ class DropboxToInstagramUploader:
         self.schedule_file = "scheduler/config.json"
         self.dropbox_folder = "/eclipsed.by.you"
 
-        # Env secrets
         self.instagram_access_token = os.getenv("IG_ECLIPSED_BY_YOU_TOKEN")
         self.instagram_account_id = os.getenv("IG_ECLIPSED_BY_YOU_ID")
         self.dropbox_app_key = os.getenv("DROPBOX_ECLIPSED_BY_YOU_APP_KEY")
@@ -75,13 +74,14 @@ class DropboxToInstagramUploader:
                 delta = int((target - now_ist).total_seconds())
                 if 0 <= delta <= 600:
                     if delta > 0:
-                        self.logger.info(f"⏳ Sleeping {delta} seconds for match: {sched}")
+                        self.logger.info(f"⏳ Sleeping {delta} seconds for schedule match: {sched}")
                         time.sleep(delta)
                     return True, caption
+
             self.send_message(f"⏰ Not in schedule. Current: {now_str}, Allowed: {allowed_times}")
             return False, ""
         except Exception as e:
-            self.logger.error(f"Schedule error: {e}")
+            self.logger.error(f"Schedule read error: {e}")
             return False, ""
 
     def list_dropbox_files(self, dbx):
@@ -165,9 +165,7 @@ class DropboxToInstagramUploader:
                 self.send_message("📭 No eligible media in Dropbox.")
                 return
 
-            for f in files:
-                if self.post_to_instagram(dbx, f, caption):
-                    break
+            self.post_to_instagram(dbx, files[0], caption)
 
         except Exception as e:
             self.send_message(f"❌ Script crashed:\n{str(e)}")
@@ -175,5 +173,4 @@ class DropboxToInstagramUploader:
             duration = time.time() - self.start_time
             self.send_message(f"🏁 Run complete in {duration:.1f} sec")
 
-if __name__ == "__main__":
-    DropboxToInstagramUploader().run()
+if __name__ == "__
