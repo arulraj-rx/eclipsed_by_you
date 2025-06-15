@@ -1,1 +1,32 @@
-{}
+{
+  "eclipsed_by_you": {
+    "Monday": {
+      "times": ["10:45", "15:55", "20:30"],
+      "caption": "#MondayVibes 🌅"
+    },
+    "Tuesday": {
+      "times": ["11:15", "16:00", "21:00"],
+      "caption": "#TuesdayTunes 🎧"
+    },
+    "Wednesday": {
+      "times": ["10:30", "14:45", "19:15"],
+      "caption": "#MidweekMood 🌌"
+    },
+    "Thursday": {
+      "times": ["11:00", "15:30", "20:00"],
+      "caption": "#ThrowbackThursday 🔙"
+    },
+    "Friday": {
+      "times": ["10:50", "16:10", "21:10"],
+      "caption": "#FridayFeels 💃"
+    },
+    "Saturday": {
+      "times": ["09:30", "13:45", "18:30"],
+      "caption": "#WeekendVibes ✨"
+    },
+    "Sunday": {
+      "times": ["11:00", "15:00", "20:45"],
+      "caption": "#SelfCareSunday 🧘"
+    }
+  }
+}
