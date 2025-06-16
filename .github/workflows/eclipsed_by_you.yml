@@ -1,0 +1,45 @@
+name: Eclipsed By You Instagram Scheduler
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+    - cron: '40 1 * * *'
+    - cron: '20 3 * * *'
+    - cron: '0 5 * * *'
+    - cron: '40 6 * * *'
+    - cron: '20 8 * * *'
+    - cron: '0 10 * * *'
+    - cron: '40 11 * * *'
+    - cron: '20 13 * * *'
+    - cron: '0 15 * * *'
+    - cron: '40 16 * * *'
+    - cron: '20 18 * * *'
+    - cron: '0 20 * * *'
+    - cron: '40 21 * * *'
+  workflow_dispatch:
+
+jobs:
+  eclipsed_by_you:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Script
+        env:
+          IG_ECLIPSED_BY_YOU_TOKEN: ${{ secrets.IG_ECLIPSED_BY_YOU_TOKEN }}
+          IG_ECLIPSED_BY_YOU_ID: ${{ secrets.IG_ECLIPSED_BY_YOU_ID }}
+          DROPBOX_ECLIPSED_BY_YOU_APP_KEY: ${{ secrets.DROPBOX_ECLIPSED_BY_YOU_APP_KEY }}
+          DROPBOX_ECLIPSED_BY_YOU_APP_SECRET: ${{ secrets.DROPBOX_ECLIPSED_BY_YOU_APP_SECRET }}
+          DROPBOX_ECLIPSED_BY_YOU_REFRESH: ${{ secrets.DROPBOX_ECLIPSED_BY_YOU_REFRESH }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python eclipsed_by_you_post.py
