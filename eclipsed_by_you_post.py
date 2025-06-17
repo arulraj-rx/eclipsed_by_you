@@ -38,7 +38,7 @@ class DropboxToInstagramUploader:
         self.telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
         self.telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
 
-        self.dropbox_folder = "/eclipsed_by_you"
+        self.dropbox_folder = "/eclipsed.by.you"
         self.telegram_bot = Bot(token=self.telegram_bot_token)
 
         self.start_time = time.time()
