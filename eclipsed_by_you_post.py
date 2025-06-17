@@ -1,4 +1,4 @@
-# File: eclipsed_by_you_post.py
+# File: ECLIPSED_BY_YOU_post.py
 import os
 import time
 import json
@@ -12,7 +12,6 @@ from pytz import timezone, utc
 class DropboxToInstagramUploader:
     DROPBOX_TOKEN_URL = "https://api.dropbox.com/oauth2/token"
     INSTAGRAM_API_BASE = "https://graph.facebook.com/v18.0"
-    SCHEDULE_WINDOW_SECONDS = 1600  # 30 minutes window to account for GitHub Actions timing
     INSTAGRAM_REEL_STATUS_RETRIES = 20
     INSTAGRAM_REEL_STATUS_WAIT_TIME = 5
 
@@ -39,7 +38,7 @@ class DropboxToInstagramUploader:
         self.telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
         self.telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
 
-        self.dropbox_folder = "/eclipsed.by.you"
+        self.dropbox_folder = "/eclipsed_by_you"
         self.telegram_bot = Bot(token=self.telegram_bot_token)
 
         self.start_time = time.time()
@@ -83,35 +82,24 @@ class DropboxToInstagramUploader:
             self.send_message(f"❌ Dropbox folder read failed: {e}", level=logging.ERROR)
             return []
 
-    def is_scheduled_time(self):
-        now_utc = datetime.now(utc)
-        now_ist = now_utc.astimezone(self.ist)
-        today = now_ist.strftime("%A")
-        now_str = now_ist.strftime("%H:%M")
-
+    def get_caption_from_config(self):
         try:
             with open(self.schedule_file, 'r') as f:
                 config = json.load(f)
-
+            
+            # Get today's caption from config
+            today = datetime.now(self.ist).strftime("%A")
             day_config = config.get(self.account_key, {}).get(today, {})
-            allowed_times = day_config.get("times", [])
             caption = day_config.get("caption", "")
-
-            for scheduled in allowed_times:
-                post_time = datetime.strptime(scheduled, "%H:%M").time()
-                scheduled_time = now_ist.replace(hour=post_time.hour, minute=post_time.minute, second=0, microsecond=0)
-                time_diff = abs((now_ist - scheduled_time).total_seconds())
-                if time_diff <= self.SCHEDULE_WINDOW_SECONDS:
-                    self.logger.info(f"Matched scheduled time: {scheduled} (within {self.SCHEDULE_WINDOW_SECONDS} seconds)")
-                    return True, caption
-
-            self.logger.info(f"⏰ Not in schedule. Current: {now_str}, Allowed: {allowed_times}")
-            self.send_message(f"⏰ Not in schedule. Current: {now_str}, Allowed: {allowed_times}", level=logging.INFO)
-            return False, caption
-
+            
+            if not caption:
+                self.send_message("⚠️ No caption found in config for today", level=logging.WARNING)
+                return "✨ #eclipsed_by_you ✨"  # Default caption if none found
+            
+            return caption
         except Exception as e:
-            self.send_message(f"❌ Schedule check failed: {e}", level=logging.ERROR)
-            return False, ""
+            self.send_message(f"❌ Failed to read caption from config: {e}", level=logging.ERROR)
+            return "✨ #eclipsed_by_you ✨"  # Default caption if config read fails
 
     def post_to_instagram(self, dbx, file, caption):
         name = file.name
@@ -166,25 +154,57 @@ class DropboxToInstagramUploader:
             self.send_message(f"❌ Publish failed: {name}\n{pub.text}", level=logging.ERROR)
             return False
 
-    def run(self):
-        self.send_message(f"📡 Run started at: {datetime.now(self.ist).strftime('%Y-%m-%d %H:%M:%S')}", level=logging.INFO)
+    def authenticate_dropbox(self):
+        """Authenticate with Dropbox and return the client."""
         try:
-            scheduled, caption = self.is_scheduled_time()
-            if not scheduled:
-                return
-
             access_token = self.refresh_dropbox_token()
-            dbx = dropbox.Dropbox(oauth2_access_token=access_token)
+            return dropbox.Dropbox(oauth2_access_token=access_token)
+        except Exception as e:
+            self.send_message(f"❌ Dropbox authentication failed: {str(e)}", level=logging.ERROR)
+            raise
 
+    def select_media_file(self, dbx):
+        """Select the first available media file from Dropbox."""
+        try:
             files = self.list_dropbox_files(dbx)
             if not files:
                 self.send_message("📭 No eligible media found in Dropbox.", level=logging.INFO)
+                return None
+            return files[0]  # Return the first available file
+        except Exception as e:
+            self.send_message(f"❌ Failed to select media file: {str(e)}", level=logging.ERROR)
+            raise
+
+    def upload_and_publish(self, dbx, file, caption):
+        """Upload and publish the selected media file to Instagram."""
+        try:
+            if self.post_to_instagram(dbx, file, caption):
+                self.send_message("✅ Successfully posted one image", level=logging.INFO)
+                return True
+            return False
+        except Exception as e:
+            self.send_message(f"❌ Failed to upload and publish: {str(e)}", level=logging.ERROR)
+            raise
+
+    def run(self):
+        """Main execution method that orchestrates the posting process."""
+        self.send_message(f"📡 Run started at: {datetime.now(self.ist).strftime('%Y-%m-%d %H:%M:%S')}", level=logging.INFO)
+        
+        try:
+            # Get caption from config
+            caption = self.get_caption_from_config()
+            
+            # Authenticate with Dropbox
+            dbx = self.authenticate_dropbox()
+            
+            # Select media file
+            file = self.select_media_file(dbx)
+            if not file:
                 return
-
-            for file in files:
-                if self.post_to_instagram(dbx, file, caption):
-                    break  # only one post per run
-
+            
+            # Upload and publish
+            self.upload_and_publish(dbx, file, caption)
+            
         except Exception as e:
             self.send_message(f"❌ Script crashed:\n{str(e)}", level=logging.ERROR)
             raise
