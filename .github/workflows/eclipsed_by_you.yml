@@ -2,14 +2,12 @@ name: eclipsed_by_you Instagram Post
 
 on:
   schedule:
-    - cron: '30 0 * * *'   # 06:00 AM IST
-    - cron: '0 3 * * *'    # 08:30 AM IST
-    - cron: '0 7 * * *'    # 12:30 PM IST
-    - cron: '30 9 * * *'   # 03:00 PM IST
-    - cron: '30 11 * * *'  # 05:00 PM IST
-    - cron: '0 13 * * *'   # 06:30 PM IST
-    - cron: '30 15 * * *'  # 09:00 PM IST
-    - cron: '0 17 * * *'   # 10:30 PM IST
+    - cron: '0 5 * * *'     # 10:30 AM IST
+    - cron: '0 7 * * *'     # 12:30 PM IST
+    - cron: '0 13 * * *'    # 06:30 PM IST
+    - cron: '0 14 * * *'    # 07:30 PM IST
+    - cron: '30 15 * * *'   # 09:00 PM IST
+    - cron: '30 16 * * *'   # 10:00 PM IST
   workflow_dispatch:        # allows manual trigger via GitHub UI
 
 jobs:
