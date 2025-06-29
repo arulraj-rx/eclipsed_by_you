@@ -49,65 +49,20 @@ class DropboxToInstagramUploader:
             self.telegram_bot = None
 
         self.start_time = time.time()
-        
-        # Message buffering for consolidated Telegram messages
-        self.message_buffer = []
-        self.last_send_time = time.time()
-        self.buffer_send_interval = 30  # Send buffer every 30 seconds or when full
 
-    def send_message(self, msg, level=logging.INFO, force_send=False):
+    def send_message(self, msg, level=logging.INFO):
         prefix = f"[{self.script_name}]\n"
         full_msg = prefix + msg
-        
-        # Always log to console
-        if level == logging.ERROR:
-            self.logger.error(full_msg)
-        else:
-            self.logger.info(full_msg)
-        
-        # Add to buffer for Telegram (unless it's an error that should be sent immediately)
-        if self.telegram_bot and self.telegram_chat_id:
-            if level == logging.ERROR or force_send:
-                # Send errors immediately
-                try:
-                    self.telegram_bot.send_message(chat_id=self.telegram_chat_id, text=full_msg)
-                except Exception as e:
-                    self.logger.error(f"Telegram send error for message '{full_msg}': {e}")
-            else:
-                # Add to buffer for consolidated sending
-                self.message_buffer.append(msg)
-                
-                # Send buffer if it's been long enough or buffer is getting full
-                current_time = time.time()
-                if (current_time - self.last_send_time > self.buffer_send_interval or 
-                    len(self.message_buffer) >= 10 or 
-                    force_send):
-                    self.send_buffered_messages()
-
-    def send_buffered_messages(self):
-        """Send all buffered messages as a single consolidated message."""
-        if not self.message_buffer or not self.telegram_bot or not self.telegram_chat_id:
-            return
-            
         try:
-            # Create consolidated message
-            consolidated_msg = f"[{self.script_name}]\n📋 Progress Update:\n\n"
-            consolidated_msg += "\n".join(self.message_buffer)
-            
-            # Send the consolidated message
-            self.telegram_bot.send_message(chat_id=self.telegram_chat_id, text=consolidated_msg)
-            
-            # Clear buffer and update last send time
-            self.message_buffer = []
-            self.last_send_time = time.time()
-            
+            if self.telegram_bot and self.telegram_chat_id:
+                self.telegram_bot.send_message(chat_id=self.telegram_chat_id, text=full_msg) 
+            # Also log the message to console with the specified level
+            if level == logging.ERROR:
+                self.logger.error(full_msg)
+            else:
+                self.logger.info(full_msg)
         except Exception as e:
-            self.logger.error(f"Telegram send error for consolidated message: {e}")
-
-    def send_final_summary(self):
-        """Send a final summary message with all remaining buffered messages."""
-        if self.message_buffer:
-            self.send_buffered_messages()
+            self.logger.error(f"Telegram send error for message '{full_msg}': {e}")
 
     def send_token_expiry_info(self):
         try:
