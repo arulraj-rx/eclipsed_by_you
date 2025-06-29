@@ -64,6 +64,15 @@ class DropboxToInstagramUploader:
         except Exception as e:
             self.logger.error(f"Telegram send error for message '{full_msg}': {e}")
 
+    def log_console_only(self, msg, level=logging.INFO):
+        """Log message to console only, not to Telegram."""
+        prefix = f"[{self.script_name}]\n"
+        full_msg = prefix + msg
+        if level == logging.ERROR:
+            self.logger.error(full_msg)
+        else:
+            self.logger.info(full_msg)
+
     def send_token_expiry_info(self):
         try:
             debug_url = f"https://graph.facebook.com/debug_token"
@@ -104,24 +113,24 @@ class DropboxToInstagramUploader:
             url = f"https://graph.facebook.com/v18.0/me/accounts"
             params = {"access_token": self.meta_token}
             
-            self.send_message(f"📡 API URL: {url}", level=logging.INFO)
+            self.log_console_only(f"📡 API URL: {url}", level=logging.INFO)
             
             start_time = time.time()
             res = requests.get(url, params=params)
             request_time = time.time() - start_time
             
-            self.send_message(f"⏱️ Page token request completed in {request_time:.2f} seconds", level=logging.INFO)
-            self.send_message(f"📊 Response status: {res.status_code}", level=logging.INFO)
+            self.log_console_only(f"⏱️ Page token request completed in {request_time:.2f} seconds", level=logging.INFO)
+            self.log_console_only(f"📊 Response status: {res.status_code}", level=logging.INFO)
 
             if res.status_code != 200:
                 self.send_message(f"❌ Failed to fetch Page token: {res.text}", level=logging.ERROR)
                 return None
 
             pages = res.json().get("data", [])
-            self.send_message(f"🔍 Found {len(pages)} pages in user account", level=logging.INFO)
+            self.log_console_only(f"🔍 Found {len(pages)} pages in user account", level=logging.INFO)
             
-            # Show all available pages with details
-            self.send_message("📋 Available Pages:", level=logging.INFO)
+            # Show all available pages with details (console only)
+            self.log_console_only("📋 Available Pages:", level=logging.INFO)
             for i, page in enumerate(pages):
                 page_id = page.get("id", "Unknown")
                 page_name = page.get("name", "Unknown")
@@ -129,27 +138,27 @@ class DropboxToInstagramUploader:
                 tasks = page.get("tasks", [])
                 page_access_token = page.get("access_token", "Not available")
                 
-                self.send_message(f"📄 Page {i+1}:", level=logging.INFO)
-                self.send_message(f"   📝 Name: {page_name}", level=logging.INFO)
-                self.send_message(f"   🆔 ID: {page_id}", level=logging.INFO)
-                self.send_message(f"   📂 Category: {category}", level=logging.INFO)
-                self.send_message(f"   🔧 Tasks: {', '.join(tasks)}", level=logging.INFO)
-                self.send_message(f"   🔐 Access Token: {page_access_token[:20]}..." if page_access_token != "Not available" else "   🔐 Access Token: Not available", level=logging.INFO)
+                self.log_console_only(f"📄 Page {i+1}:", level=logging.INFO)
+                self.log_console_only(f"   📝 Name: {page_name}", level=logging.INFO)
+                self.log_console_only(f"   🆔 ID: {page_id}", level=logging.INFO)
+                self.log_console_only(f"   📂 Category: {category}", level=logging.INFO)
+                self.log_console_only(f"   🔧 Tasks: {', '.join(tasks)}", level=logging.INFO)
+                self.log_console_only(f"   🔐 Access Token: {page_access_token[:20]}..." if page_access_token != "Not available" else "   🔐 Access Token: Not available", level=logging.INFO)
                 
                 # Check if this is the target page
                 if page_id == self.fb_page_id:
-                    self.send_message(f"   ✅ MATCH FOUND! This is your target page", level=logging.INFO)
+                    self.log_console_only(f"   ✅ MATCH FOUND! This is your target page", level=logging.INFO)
                     
                     # Use the page access token directly from the response
                     if page_access_token and page_access_token != "Not available":
                         self.send_message(f"✅ Page Access Token fetched successfully for: {page_name} (ID: {self.fb_page_id})")
-                        self.send_message(f"🔐 Using page access token: {page_access_token[:20]}...", level=logging.INFO)
+                        self.log_console_only(f"🔐 Using page access token: {page_access_token[:20]}...", level=logging.INFO)
                         return page_access_token
                     else:
                         self.send_message(f"❌ No access token found for page: {page_name}", level=logging.ERROR)
                         return None
                 else:
-                    self.send_message(f"   ❌ Not matching target page ID: {self.fb_page_id}", level=logging.INFO)
+                    self.log_console_only(f"   ❌ Not matching target page ID: {self.fb_page_id}", level=logging.INFO)
 
             # If no match found, show configuration help
             self.send_message(f"⚠️ Page ID {self.fb_page_id} not found in user's account list.", level=logging.WARNING)
@@ -249,14 +258,14 @@ class DropboxToInstagramUploader:
             data["image_url"] = temp_link
 
         self.send_message("🔄 Step 2: Sending media creation request to Instagram API...", level=logging.INFO)
-        self.send_message(f"📡 API URL: {upload_url}", level=logging.INFO)
+        self.log_console_only(f"📡 API URL: {upload_url}", level=logging.INFO)
         
         start_time = time.time()
         res = requests.post(upload_url, data=data)
         request_time = time.time() - start_time
         
-        self.send_message(f"⏱️ API request completed in {request_time:.2f} seconds", level=logging.INFO)
-        self.send_message(f"📊 Response status: {res.status_code}", level=logging.INFO)
+        self.log_console_only(f"⏱️ API request completed in {request_time:.2f} seconds", level=logging.INFO)
+        self.log_console_only(f"📊 Response status: {res.status_code}", level=logging.INFO)
         
         if res.status_code != 200:
             err = res.json().get("error", {}).get("message", "Unknown")
@@ -275,7 +284,7 @@ class DropboxToInstagramUploader:
             self.send_message("⏳ Step 3: Processing video for Instagram...", level=logging.INFO)
             processing_start = time.time()
             for attempt in range(self.INSTAGRAM_REEL_STATUS_RETRIES):
-                self.send_message(f"🔄 Processing attempt {attempt + 1}/{self.INSTAGRAM_REEL_STATUS_RETRIES}", level=logging.INFO)
+                self.log_console_only(f"🔄 Processing attempt {attempt + 1}/{self.INSTAGRAM_REEL_STATUS_RETRIES}", level=logging.INFO)
                 
                 status_response = requests.get(
                     f"{self.INSTAGRAM_API_BASE}/{creation_id}?fields=status_code&access_token={page_token}"
@@ -288,31 +297,35 @@ class DropboxToInstagramUploader:
                 status = status_response.json()
                 current_status = status.get("status_code", "UNKNOWN")
                 
-                self.send_message(f"📊 Current status: {current_status}", level=logging.INFO)
+                self.log_console_only(f"📊 Current status: {current_status}", level=logging.INFO)
                 
                 if current_status == "FINISHED":
                     processing_time = time.time() - processing_start
                     self.send_message(f"✅ Instagram video processing completed in {processing_time:.2f} seconds!", level=logging.INFO)
+                    
+                    # Wait 15 seconds after FINISHED status before publishing (official recommendation)
+                    self.send_message("⏳ Waiting 15 seconds before publishing (official recommendation)...", level=logging.INFO)
+                    time.sleep(15)
                     break
                 elif current_status == "ERROR":
                     self.send_message(f"❌ Instagram processing failed: {name}\n📸 Status: ERROR", level=logging.ERROR)
                     return False
                 
-                self.send_message(f"⏳ Waiting {self.INSTAGRAM_REEL_STATUS_WAIT_TIME} seconds before next check...", level=logging.INFO)
+                self.log_console_only(f"⏳ Waiting {self.INSTAGRAM_REEL_STATUS_WAIT_TIME} seconds before next check...", level=logging.INFO)
                 time.sleep(self.INSTAGRAM_REEL_STATUS_WAIT_TIME)
 
         self.send_message("📤 Step 4: Publishing to Instagram...", level=logging.INFO)
         publish_url = f"{self.INSTAGRAM_API_BASE}/{self.ig_id}/media_publish"
         publish_data = {"creation_id": creation_id, "access_token": page_token}
         
-        self.send_message(f"📡 Publishing to: {publish_url}", level=logging.INFO)
+        self.log_console_only(f"📡 Publishing to: {publish_url}", level=logging.INFO)
         
         publish_start = time.time()
         pub = requests.post(publish_url, data=publish_data)
         publish_time = time.time() - publish_start
         
-        self.send_message(f"⏱️ Publish request completed in {publish_time:.2f} seconds", level=logging.INFO)
-        self.send_message(f"📊 Publish response status: {pub.status_code}", level=logging.INFO)
+        self.log_console_only(f"⏱️ Publish request completed in {publish_time:.2f} seconds", level=logging.INFO)
+        self.log_console_only(f"📊 Publish response status: {pub.status_code}", level=logging.INFO)
         
         # Track Instagram and Facebook results separately
         instagram_success = False
@@ -324,10 +337,13 @@ class DropboxToInstagramUploader:
             self.send_message(f"✅ Instagram post published successfully!\n📸 Media ID: {instagram_id}\n📸 Account ID: {self.ig_id}\n📦 Files left: {total_files - 1}")
             instagram_success = True
             
+            # Verify the post is live (official recommendation)
+            self.verify_instagram_post_by_creation_id(creation_id, page_token)
+            
             # Also post to Facebook Page if it's a REEL (using the same page token)
             if media_type == "REELS":
                 self.send_message("📘 Step 5: Starting Facebook Page upload...", level=logging.INFO)
-                facebook_success = self.post_to_facebook_page(temp_link, description, page_token)
+                facebook_success = self.post_to_facebook_page(temp_link, description, page_token, instagram_id)
             else:
                 facebook_success = True  # No Facebook post needed for images
             
@@ -339,7 +355,48 @@ class DropboxToInstagramUploader:
             self.send_message(f"❌ Instagram publish failed: {name}\n📸 Error: {error_msg}\n📸 Code: {error_code}\n📸 Status: {pub.status_code}", level=logging.ERROR)
             return False, media_type, instagram_success, facebook_success
 
-    def post_to_facebook_page(self, video_url, caption, page_token=None):
+    def crosspost_instagram_to_facebook(self, instagram_media_id, caption, page_token):
+        """Crosspost Instagram video to Facebook Page instead of re-uploading."""
+        try:
+            self.send_message("🔄 Attempting to crosspost Instagram video to Facebook...", level=logging.INFO)
+            
+            # Use the crossposting endpoint
+            url = f"https://graph.facebook.com/{self.fb_page_id}/feed"
+            data = {
+                "access_token": page_token,
+                "message": caption,
+                "attached_media": json.dumps([{"media_fbid": instagram_media_id}])
+            }
+            
+            self.log_console_only(f"📡 Crosspost URL: {url}", level=logging.INFO)
+            self.log_console_only(f"📸 Instagram Media ID: {instagram_media_id}", level=logging.INFO)
+            
+            start_time = time.time()
+            res = requests.post(url, data=data)
+            request_time = time.time() - start_time
+            
+            self.log_console_only(f"⏱️ Crosspost request completed in {request_time:.2f} seconds", level=logging.INFO)
+            self.log_console_only(f"📊 Crosspost response status: {res.status_code}", level=logging.INFO)
+            
+            if res.status_code == 200:
+                response_data = res.json()
+                post_id = response_data.get("id", "Unknown")
+                self.send_message(f"✅ Instagram video crossposted to Facebook successfully!\n📘 Post ID: {post_id}\n📘 Page ID: {self.fb_page_id}")
+                
+                # Verify the crosspost is live
+                self.verify_facebook_post_by_video_id(post_id, page_token)
+                return True
+            else:
+                error_msg = res.json().get("error", {}).get("message", "Unknown error")
+                error_code = res.json().get("error", {}).get("code", "N/A")
+                self.log_console_only(f"❌ Crosspost failed: {error_msg} (Code: {error_code})", level=logging.INFO)
+                return False
+                
+        except Exception as e:
+            self.log_console_only(f"❌ Exception during crosspost: {e}", level=logging.INFO)
+            return False
+
+    def post_to_facebook_page(self, video_url, caption, page_token=None, instagram_media_id=None):
         """Publish the Reel video also to the Facebook Page."""
         if not self.fb_page_id:
             self.send_message("⚠️ Facebook Page ID not configured, skipping Facebook post", level=logging.WARNING)
@@ -357,8 +414,16 @@ class DropboxToInstagramUploader:
         else:
             self.send_message("🔐 Using shared Facebook Page Access Token for Facebook upload", level=logging.INFO)
 
-        # Skip permission check for now and try the upload directly
-        self.send_message("🔄 Skipping permission check - attempting Facebook upload directly...", level=logging.INFO)
+        # Try crossposting first if we have Instagram media ID
+        if instagram_media_id:
+            self.send_message("🔄 Attempting crosspost from Instagram to Facebook...", level=logging.INFO)
+            if self.crosspost_instagram_to_facebook(instagram_media_id, caption, page_token):
+                return True
+            else:
+                self.send_message("⚠️ Crosspost failed, falling back to direct upload...", level=logging.WARNING)
+
+        # Fallback to direct video upload
+        self.send_message("🔄 Using direct video upload to Facebook...", level=logging.INFO)
 
         post_url = f"https://graph.facebook.com/{self.fb_page_id}/videos"
         data = {
@@ -368,36 +433,39 @@ class DropboxToInstagramUploader:
         }
         
         # Debug: Show which token is being used
-        self.send_message(f"🔐 Using page token for Facebook upload: {page_token[:20]}...", level=logging.INFO)
-        self.send_message(f"📄 Page ID for upload: {self.fb_page_id}", level=logging.INFO)
-        self.send_message(f"📹 Video URL: {video_url[:50]}...", level=logging.INFO)
-        self.send_message(f"📝 Caption: {caption[:50]}...", level=logging.INFO)
+        self.log_console_only(f"🔐 Using page token for Facebook upload: {page_token[:20]}...", level=logging.INFO)
+        self.log_console_only(f"📄 Page ID for upload: {self.fb_page_id}", level=logging.INFO)
+        self.log_console_only(f"📹 Video URL: {video_url[:50]}...", level=logging.INFO)
+        self.log_console_only(f"📝 Caption: {caption[:50]}...", level=logging.INFO)
         
         # Skip token verification to avoid potential issues
-        self.send_message("🔄 Skipping token verification for Facebook upload...", level=logging.INFO)
+        self.log_console_only("🔄 Skipping token verification for Facebook upload...", level=logging.INFO)
         
         try:
             self.send_message("🔄 Sending request to Facebook API...", level=logging.INFO)
-            self.send_message(f"📡 Facebook API URL: {post_url}", level=logging.INFO)
+            self.log_console_only(f"📡 Facebook API URL: {post_url}", level=logging.INFO)
             
             start_time = time.time()
             res = requests.post(post_url, data=data)
             request_time = time.time() - start_time
             
-            self.send_message(f"⏱️ Facebook API request completed in {request_time:.2f} seconds", level=logging.INFO)
-            self.send_message(f"📊 Facebook response status: {res.status_code}", level=logging.INFO)
+            self.log_console_only(f"⏱️ Facebook API request completed in {request_time:.2f} seconds", level=logging.INFO)
+            self.log_console_only(f"📊 Facebook response status: {res.status_code}", level=logging.INFO)
             
-            # Log the full response for debugging
+            # Log the full response for debugging (console only)
             try:
                 response_json = res.json()
-                self.send_message(f"📄 Facebook response: {json.dumps(response_json, indent=2)}", level=logging.INFO)
+                self.log_console_only(f"📄 Facebook response: {json.dumps(response_json, indent=2)}", level=logging.INFO)
             except:
-                self.send_message(f"📄 Facebook response text: {res.text}", level=logging.INFO)
+                self.log_console_only(f"📄 Facebook response text: {res.text}", level=logging.INFO)
             
             if res.status_code == 200:
                 response_data = res.json()
                 video_id = response_data.get("id", "Unknown")
                 self.send_message(f"✅ Facebook Page post published successfully!\n📘 Video ID: {video_id}\n📘 Page ID: {self.fb_page_id}")
+                
+                # Verify the video post is live
+                self.verify_facebook_post_by_video_id(video_id, page_token)
                 return True
             else:
                 error_msg = res.json().get("error", {}).get("message", "Unknown error")
@@ -710,7 +778,7 @@ class DropboxToInstagramUploader:
     def list_available_pages(self):
         """List all available pages for the user to help with configuration."""
         try:
-            self.send_message("🔍 Listing all available pages for configuration...", level=logging.INFO)
+            self.log_console_only("🔍 Listing all available pages for configuration...", level=logging.INFO)
             url = f"https://graph.facebook.com/v18.0/me/accounts"
             params = {"access_token": self.meta_token}
             
@@ -720,7 +788,7 @@ class DropboxToInstagramUploader:
                 return
 
             pages = res.json().get("data", [])
-            self.send_message(f"📋 Found {len(pages)} pages:", level=logging.INFO)
+            self.log_console_only(f"📋 Found {len(pages)} pages:", level=logging.INFO)
             
             for i, page in enumerate(pages):
                 page_id = page.get("id", "Unknown")
@@ -728,19 +796,19 @@ class DropboxToInstagramUploader:
                 category = page.get("category", "Unknown")
                 tasks = page.get("tasks", [])
                 
-                self.send_message(f"📄 Page {i+1}:", level=logging.INFO)
-                self.send_message(f"   📝 Name: {page_name}", level=logging.INFO)
-                self.send_message(f"   🆔 ID: {page_id}", level=logging.INFO)
-                self.send_message(f"   📂 Category: {category}", level=logging.INFO)
-                self.send_message(f"   🔧 Tasks: {', '.join(tasks)}", level=logging.INFO)
+                self.log_console_only(f"📄 Page {i+1}:", level=logging.INFO)
+                self.log_console_only(f"   📝 Name: {page_name}", level=logging.INFO)
+                self.log_console_only(f"   🆔 ID: {page_id}", level=logging.INFO)
+                self.log_console_only(f"   📂 Category: {category}", level=logging.INFO)
+                self.log_console_only(f"   🔧 Tasks: {', '.join(tasks)}", level=logging.INFO)
                 
                 # Check if this matches current configuration
                 if page_id == self.fb_page_id:
-                    self.send_message(f"   ✅ CURRENTLY CONFIGURED", level=logging.INFO)
+                    self.log_console_only(f"   ✅ CURRENTLY CONFIGURED", level=logging.INFO)
                 else:
-                    self.send_message(f"   ⚙️ To use this page, set FB_PAGE_ID={page_id}", level=logging.INFO)
+                    self.log_console_only(f"   ⚙️ To use this page, set FB_PAGE_ID={page_id}", level=logging.INFO)
             
-            self.send_message("💡 Copy the ID of the page you want to use and set it as FB_PAGE_ID environment variable.", level=logging.INFO)
+            self.log_console_only("💡 Copy the ID of the page you want to use and set it as FB_PAGE_ID environment variable.", level=logging.INFO)
             
         except Exception as e:
             self.send_message(f"❌ Exception listing pages: {e}", level=logging.ERROR)
@@ -791,7 +859,7 @@ class DropboxToInstagramUploader:
     def check_instagram_page_connection(self, page_token):
         """Check if Instagram account is properly connected to the Facebook page."""
         try:
-            self.send_message("🔍 Checking Instagram-Facebook page connection...", level=logging.INFO)
+            self.log_console_only("🔍 Checking Instagram-Facebook page connection...", level=logging.INFO)
             
             # Check if the page has Instagram account connected
             url = f"https://graph.facebook.com/v18.0/{self.fb_page_id}"
@@ -800,7 +868,7 @@ class DropboxToInstagramUploader:
                 "access_token": page_token
             }
             
-            self.send_message(f"📡 Checking page Instagram connection: {url}", level=logging.INFO)
+            self.log_console_only(f"📡 Checking page Instagram connection: {url}", level=logging.INFO)
             
             res = requests.get(url, params=params)
             if res.status_code == 200:
@@ -814,7 +882,7 @@ class DropboxToInstagramUploader:
                     
                     # Verify this matches our configured IG_ID
                     if instagram_id == self.ig_id:
-                        self.send_message("✅ Instagram ID matches configured IG_ID", level=logging.INFO)
+                        self.log_console_only("✅ Instagram ID matches configured IG_ID", level=logging.INFO)
                         return True
                     else:
                         self.send_message(f"⚠️ Instagram ID mismatch! Configured: {self.ig_id}, Connected: {instagram_id}", level=logging.WARNING)
@@ -837,7 +905,7 @@ class DropboxToInstagramUploader:
     def test_page_token(self, page_token):
         """Test the page access token by making a simple API call."""
         try:
-            self.send_message("🧪 Testing page access token...", level=logging.INFO)
+            self.log_console_only("🧪 Testing page access token...", level=logging.INFO)
             
             # Test the token by getting page info
             url = f"https://graph.facebook.com/v18.0/me"
@@ -846,14 +914,14 @@ class DropboxToInstagramUploader:
                 "access_token": page_token
             }
             
-            self.send_message(f"📡 Testing token with: {url}", level=logging.INFO)
+            self.log_console_only(f"📡 Testing token with: {url}", level=logging.INFO)
             
             start_time = time.time()
             res = requests.get(url, params=params)
             request_time = time.time() - start_time
             
-            self.send_message(f"⏱️ Token test completed in {request_time:.2f} seconds", level=logging.INFO)
-            self.send_message(f"📊 Test response status: {res.status_code}", level=logging.INFO)
+            self.log_console_only(f"⏱️ Token test completed in {request_time:.2f} seconds", level=logging.INFO)
+            self.log_console_only(f"📊 Test response status: {res.status_code}", level=logging.INFO)
             
             if res.status_code == 200:
                 page_info = res.json()
@@ -861,14 +929,14 @@ class DropboxToInstagramUploader:
                 page_name = page_info.get("name", "Unknown")
                 page_category = page_info.get("category", "Unknown")
                 
-                self.send_message(f"✅ Page token test successful!", level=logging.INFO)
-                self.send_message(f"📄 Page ID: {page_id}", level=logging.INFO)
-                self.send_message(f"📄 Page Name: {page_name}", level=logging.INFO)
-                self.send_message(f"📄 Page Category: {page_category}", level=logging.INFO)
+                self.log_console_only(f"✅ Page token test successful!", level=logging.INFO)
+                self.log_console_only(f"📄 Page ID: {page_id}", level=logging.INFO)
+                self.log_console_only(f"📄 Page Name: {page_name}", level=logging.INFO)
+                self.log_console_only(f"📄 Page Category: {page_category}", level=logging.INFO)
                 
                 # Verify this matches our expected page
                 if page_id == self.fb_page_id:
-                    self.send_message("✅ Page ID matches expected page!", level=logging.INFO)
+                    self.log_console_only("✅ Page ID matches expected page!", level=logging.INFO)
                     return True
                 else:
                     self.send_message(f"⚠️ Page ID mismatch! Expected: {self.fb_page_id}, Got: {page_id}", level=logging.WARNING)
@@ -926,6 +994,94 @@ class DropboxToInstagramUploader:
                 
         except Exception as e:
             self.send_message(f"❌ Exception verifying token type: {e}", level=logging.ERROR)
+            return False
+
+    def verify_instagram_post_by_creation_id(self, creation_id, page_token):
+        """Verify Instagram post is live by polling the creation_id."""
+        try:
+            self.send_message("🔍 Verifying Instagram post is live...", level=logging.INFO)
+            
+            # Poll the creation_id to get post details
+            url = f"{self.INSTAGRAM_API_BASE}/{creation_id}"
+            params = {
+                "fields": "id,permalink_url,media_type,media_url,thumbnail_url,created_time",
+                "access_token": page_token
+            }
+            
+            self.log_console_only(f"📡 Verification URL: {url}", level=logging.INFO)
+            
+            # Try up to 5 times with 3-second intervals
+            for attempt in range(5):
+                self.log_console_only(f"🔄 Verification attempt {attempt + 1}/5", level=logging.INFO)
+                
+                res = requests.get(url, params=params)
+                if res.status_code == 200:
+                    post_data = res.json()
+                    post_id = post_data.get("id", "Unknown")
+                    permalink = post_data.get("permalink_url", "Not available")
+                    media_type = post_data.get("media_type", "Unknown")
+                    created_time = post_data.get("created_time", "Unknown")
+                    
+                    self.send_message(f"✅ Instagram post verified as live!", level=logging.INFO)
+                    self.log_console_only(f"📸 Post ID: {post_id}", level=logging.INFO)
+                    self.log_console_only(f"🔗 Permalink: {permalink}", level=logging.INFO)
+                    self.log_console_only(f"📂 Media Type: {media_type}", level=logging.INFO)
+                    self.log_console_only(f"⏰ Created: {created_time}", level=logging.INFO)
+                    return True
+                else:
+                    self.log_console_only(f"❌ Verification failed (attempt {attempt + 1}): {res.status_code}", level=logging.INFO)
+                    if attempt < 4:  # Don't sleep on last attempt
+                        time.sleep(3)
+            
+            self.send_message("⚠️ Could not verify Instagram post is live", level=logging.WARNING)
+            return False
+            
+        except Exception as e:
+            self.send_message(f"❌ Exception verifying Instagram post: {e}", level=logging.ERROR)
+            return False
+
+    def verify_facebook_post_by_video_id(self, video_id, page_token):
+        """Verify Facebook video post is live by polling the video_id."""
+        try:
+            self.send_message("🔍 Verifying Facebook video post is live...", level=logging.INFO)
+            
+            # Poll the video_id to get post details
+            url = f"https://graph.facebook.com/{video_id}"
+            params = {
+                "fields": "id,permalink_url,created_time,length,title,description",
+                "access_token": page_token
+            }
+            
+            self.log_console_only(f"📡 Verification URL: {url}", level=logging.INFO)
+            
+            # Try up to 5 times with 3-second intervals
+            for attempt in range(5):
+                self.log_console_only(f"🔄 Verification attempt {attempt + 1}/5", level=logging.INFO)
+                
+                res = requests.get(url, params=params)
+                if res.status_code == 200:
+                    post_data = res.json()
+                    fb_video_id = post_data.get("id", "Unknown")
+                    permalink = post_data.get("permalink_url", "Not available")
+                    created_time = post_data.get("created_time", "Unknown")
+                    length = post_data.get("length", "Unknown")
+                    
+                    self.send_message(f"✅ Facebook video post verified as live!", level=logging.INFO)
+                    self.log_console_only(f"📘 Video ID: {fb_video_id}", level=logging.INFO)
+                    self.log_console_only(f"🔗 Permalink: {permalink}", level=logging.INFO)
+                    self.log_console_only(f"⏰ Created: {created_time}", level=logging.INFO)
+                    self.log_console_only(f"⏱️ Length: {length} seconds", level=logging.INFO)
+                    return True
+                else:
+                    self.log_console_only(f"❌ Verification failed (attempt {attempt + 1}): {res.status_code}", level=logging.INFO)
+                    if attempt < 4:  # Don't sleep on last attempt
+                        time.sleep(3)
+            
+            self.send_message("⚠️ Could not verify Facebook video post is live", level=logging.WARNING)
+            return False
+            
+        except Exception as e:
+            self.send_message(f"❌ Exception verifying Facebook video post: {e}", level=logging.ERROR)
             return False
 
 if __name__ == "__main__":
