@@ -55,7 +55,7 @@ class DropboxToInstagramUploader:
         full_msg = prefix + msg
         try:
             if self.telegram_bot and self.telegram_chat_id:
-                self.telegram_bot.send_message(chat_id=self.telegram_chat_id, text=full_msg) 
+                self.telegram_bot.send_message(chat_id=self.telegram_chat_id, text=full_msg)
             # Also log the message to console with the specified level
             if level == logging.ERROR:
                 self.logger.error(full_msg)
@@ -127,19 +127,27 @@ class DropboxToInstagramUploader:
                 page_name = page.get("name", "Unknown")
                 category = page.get("category", "Unknown")
                 tasks = page.get("tasks", [])
+                page_access_token = page.get("access_token", "Not available")
                 
                 self.send_message(f"📄 Page {i+1}:", level=logging.INFO)
                 self.send_message(f"   📝 Name: {page_name}", level=logging.INFO)
                 self.send_message(f"   🆔 ID: {page_id}", level=logging.INFO)
                 self.send_message(f"   📂 Category: {category}", level=logging.INFO)
                 self.send_message(f"   🔧 Tasks: {', '.join(tasks)}", level=logging.INFO)
+                self.send_message(f"   🔐 Access Token: {page_access_token[:20]}..." if page_access_token != "Not available" else "   🔐 Access Token: Not available", level=logging.INFO)
                 
                 # Check if this is the target page
                 if page_id == self.fb_page_id:
                     self.send_message(f"   ✅ MATCH FOUND! This is your target page", level=logging.INFO)
-                    page_token = self.exchange_user_token_for_page_token(page_id)
-                    self.send_message(f"✅ Page Access Token fetched successfully for: {page_name} (ID: {self.fb_page_id})")
-                    return page_token
+                    
+                    # Use the page access token directly from the response
+                    if page_access_token and page_access_token != "Not available":
+                        self.send_message(f"✅ Page Access Token fetched successfully for: {page_name} (ID: {self.fb_page_id})")
+                        self.send_message(f"🔐 Using page access token: {page_access_token[:20]}...", level=logging.INFO)
+                        return page_access_token
+                    else:
+                        self.send_message(f"❌ No access token found for page: {page_name}", level=logging.ERROR)
+                        return None
                 else:
                     self.send_message(f"   ❌ Not matching target page ID: {self.fb_page_id}", level=logging.INFO)
 
@@ -306,23 +314,30 @@ class DropboxToInstagramUploader:
         self.send_message(f"⏱️ Publish request completed in {publish_time:.2f} seconds", level=logging.INFO)
         self.send_message(f"📊 Publish response status: {pub.status_code}", level=logging.INFO)
         
+        # Track Instagram and Facebook results separately
+        instagram_success = False
+        facebook_success = False
+        
         if pub.status_code == 200:
             response_data = pub.json()
             instagram_id = response_data.get("id", "Unknown")
             self.send_message(f"✅ Instagram post published successfully!\n📸 Media ID: {instagram_id}\n📸 Account ID: {self.ig_id}\n📦 Files left: {total_files - 1}")
+            instagram_success = True
             
             # Also post to Facebook Page if it's a REEL (using the same page token)
             if media_type == "REELS":
                 self.send_message("📘 Step 5: Starting Facebook Page upload...", level=logging.INFO)
-                self.post_to_facebook_page(temp_link, description, page_token)
+                facebook_success = self.post_to_facebook_page(temp_link, description, page_token)
+            else:
+                facebook_success = True  # No Facebook post needed for images
             
-            # Removed file deletion from here
-            return True, media_type
+            # Return success status for both platforms
+            return True, media_type, instagram_success, facebook_success
         else:
             error_msg = pub.json().get("error", {}).get("message", "Unknown error")
             error_code = pub.json().get("error", {}).get("code", "N/A")
             self.send_message(f"❌ Instagram publish failed: {name}\n📸 Error: {error_msg}\n📸 Code: {error_code}\n📸 Status: {pub.status_code}", level=logging.ERROR)
-            return False, media_type
+            return False, media_type, instagram_success, facebook_success
 
     def post_to_facebook_page(self, video_url, caption, page_token=None):
         """Publish the Reel video also to the Facebook Page."""
@@ -355,11 +370,11 @@ class DropboxToInstagramUploader:
         # Debug: Show which token is being used
         self.send_message(f"🔐 Using page token for Facebook upload: {page_token[:20]}...", level=logging.INFO)
         self.send_message(f"📄 Page ID for upload: {self.fb_page_id}", level=logging.INFO)
+        self.send_message(f"📹 Video URL: {video_url[:50]}...", level=logging.INFO)
+        self.send_message(f"📝 Caption: {caption[:50]}...", level=logging.INFO)
         
-        # Verify this is actually a page token
-        if not self.verify_token_type(page_token):
-            self.send_message("❌ Token verification failed - not a valid page token", level=logging.ERROR)
-            return False
+        # Skip token verification to avoid potential issues
+        self.send_message("🔄 Skipping token verification for Facebook upload...", level=logging.INFO)
         
         try:
             self.send_message("🔄 Sending request to Facebook API...", level=logging.INFO)
@@ -372,6 +387,13 @@ class DropboxToInstagramUploader:
             self.send_message(f"⏱️ Facebook API request completed in {request_time:.2f} seconds", level=logging.INFO)
             self.send_message(f"📊 Facebook response status: {res.status_code}", level=logging.INFO)
             
+            # Log the full response for debugging
+            try:
+                response_json = res.json()
+                self.send_message(f"📄 Facebook response: {json.dumps(response_json, indent=2)}", level=logging.INFO)
+            except:
+                self.send_message(f"📄 Facebook response text: {res.text}", level=logging.INFO)
+            
             if res.status_code == 200:
                 response_data = res.json()
                 video_id = response_data.get("id", "Unknown")
@@ -380,10 +402,23 @@ class DropboxToInstagramUploader:
             else:
                 error_msg = res.json().get("error", {}).get("message", "Unknown error")
                 error_code = res.json().get("error", {}).get("code", "N/A")
-                self.send_message(f"❌ Facebook Page upload failed:\n📘 Error: {error_msg}\n📘 Code: {error_code}\n📘 Status: {res.status_code}", level=logging.ERROR)
+                error_subcode = res.json().get("error", {}).get("error_subcode", "N/A")
+                error_type = res.json().get("error", {}).get("type", "N/A")
+                
+                self.send_message(f"❌ Facebook Page upload failed:", level=logging.ERROR)
+                self.send_message(f"📘 Error: {error_msg}", level=logging.ERROR)
+                self.send_message(f"📘 Code: {error_code}", level=logging.ERROR)
+                self.send_message(f"📘 Subcode: {error_subcode}", level=logging.ERROR)
+                self.send_message(f"📘 Type: {error_type}", level=logging.ERROR)
+                self.send_message(f"📘 Status: {res.status_code}", level=logging.ERROR)
+                
+                # Don't let Facebook failure affect Instagram success
+                self.send_message("⚠️ Facebook upload failed, but Instagram upload was successful", level=logging.WARNING)
                 return False
         except Exception as e:
             self.send_message(f"❌ Facebook Page upload exception:\n📘 Error: {str(e)}", level=logging.ERROR)
+            # Don't let Facebook failure affect Instagram success
+            self.send_message("⚠️ Facebook upload exception, but Instagram upload was successful", level=logging.WARNING)
             return False
 
     def authenticate_dropbox(self):
@@ -408,33 +443,61 @@ class DropboxToInstagramUploader:
         try:
             result = self.post_to_instagram(dbx, file, caption, description)
             if isinstance(result, tuple):
-                success, media_type = result
+                if len(result) == 4:
+                    success, media_type, instagram_success, facebook_success = result
+                elif len(result) == 2:
+                    success, media_type = result
+                    instagram_success = success
+                    facebook_success = False
+                else:
+                    success = result
+                    media_type = None
+                    instagram_success = success
+                    facebook_success = False
             else:
                 success = result
                 media_type = None
+                instagram_success = success
+                facebook_success = False
         except Exception as e:
             self.send_message(f"❌ Exception during post for {file.name}: {e}", level=logging.ERROR)
             success = False
             media_type = None
+            instagram_success = False
+            facebook_success = False
 
         # Always delete the file after an attempt
-            try:
-                dbx.files_delete_v2(file.path_lower)
-                self.send_message(f"🗑️ Deleted file after attempt: {file.name}")
-            except Exception as e:
-                self.send_message(f"⚠️ Failed to delete file {file.name}: {e}", level=logging.WARNING)
+        try:
+            dbx.files_delete_v2(file.path_lower)
+            self.send_message(f"🗑️ Deleted file after attempt: {file.name}")
+        except Exception as e:
+            self.send_message(f"⚠️ Failed to delete file {file.name}: {e}", level=logging.WARNING)
 
-        if success:
+        # Report results for each platform separately
+        if instagram_success:
             if media_type == "REELS":
                 self.send_message("✅ Successfully posted one reel to Instagram", level=logging.INFO)
             elif media_type == "IMAGE":
                 self.send_message("✅ Successfully posted one image to Instagram", level=logging.INFO)
             else:
                 self.send_message("✅ Successfully posted to Instagram", level=logging.INFO)
-            return True  # Exit after single post
         else:
-            self.send_message("❌ Single post attempt failed. No retries.", level=logging.ERROR)
-            return False
+            self.send_message("❌ Instagram post failed", level=logging.ERROR)
+            
+        if media_type == "REELS":
+            if facebook_success:
+                self.send_message("✅ Successfully posted one reel to Facebook Page", level=logging.INFO)
+            else:
+                self.send_message("❌ Facebook Page post failed", level=logging.ERROR)
+        
+        # Final summary
+        if media_type == "REELS":
+            self.send_message(f"📊 Final Status: Instagram {'✅' if instagram_success else '❌'} | Facebook {'✅' if facebook_success else '❌'}", level=logging.INFO)
+        else:
+            self.send_message(f"📊 Final Status: Instagram {'✅' if instagram_success else '❌'} | Facebook N/A (image)", level=logging.INFO)
+        
+        # Return overall success (Instagram success is primary)
+        return instagram_success
 
     def run(self):
         """Main execution method that orchestrates the posting process."""
@@ -460,9 +523,10 @@ class DropboxToInstagramUploader:
             success = self.process_files_with_retries(dbx, caption, description, max_retries=1)
             
             if success:
-                self.send_message("🎉 Single post completed successfully!", level=logging.INFO)
+                self.send_message("🎉 Instagram post completed successfully!", level=logging.INFO)
+                self.send_message("📊 Summary: Instagram ✅ | Facebook status reported separately above", level=logging.INFO)
             else:
-                self.send_message("❌ Single post failed.", level=logging.ERROR)
+                self.send_message("❌ Instagram post failed.", level=logging.ERROR)
             
         except Exception as e:
             self.send_message(f"❌ Script crashed:\n{str(e)}", level=logging.ERROR)
