@@ -23,7 +23,7 @@ class SocialMediaPoster:
         self.script_name = "📱 eclipsed_by_you"
         
         # API Version
-        self.meta_version = "v18.0"
+        self.meta_version = "v22.0"
 
         # Meta/Facebook configuration - Updated environment variable names
         self.meta_token = os.getenv("META_TOKEN")
@@ -138,7 +138,7 @@ class SocialMediaPoster:
         url = f"https://graph.facebook.com/{self.meta_version}/{media_id}"
         params = {"fields": "status_code,copyright_status", "access_token": self.meta_token}
 
-        max_attempts = 60  # Limit to 5 minutes
+        max_attempts = 10  # Limit to 5 minutes
         attempts = 0
 
         while attempts < max_attempts:
