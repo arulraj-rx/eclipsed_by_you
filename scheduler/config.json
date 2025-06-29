@@ -1,25 +1,32 @@
 {
   "ink_wisps": {
-    "Sunday": {
-      "caption": "🌞 Sunday serenity 🌞 #ink_wisps"
-    },
     "Monday": {
-      "caption": "💼 Start strong this Monday 💼 #ink_wisps"
+      "caption": "🌌 Start your week with ink and wonder. #ink_wisps",
+      "description": "✨ New beginnings with #ink_wisps — follow us on Instagram and Facebook for weekly art drops!"
     },
     "Tuesday": {
-      "caption": "🔥 Keep pushing this Tuesday 🔥 #ink_wisps"
+      "caption": "🎨 Tuesday tones — shades of creativity. #ink_wisps",
+      "description": "🖌️ Explore Tuesday’s colors with #ink_wisps. Watch, like, and share!"
     },
     "Wednesday": {
-      "caption": "🐪 Midweek magic 🐪 #ink_wisps"
+      "caption": "🌿 Midweek musings in ink. #ink_wisps",
+      "description": "📖 What’s your midweek mood? Dive into the latest reel from #ink_wisps."
     },
     "Thursday": {
-      "caption": "🌟 Thrive on Thursday 🌟 #ink_wisps"
+      "caption": "🌀 Flow through your Thursday. #ink_wisps",
+      "description": "🎥 A moment of calm and color. Follow #ink_wisps for more."
     },
     "Friday": {
-      "caption": "🎉 Friday feels 🎉 #ink_wisps"
+      "caption": "🌟 Ink meets energy this Friday. #ink_wisps",
+      "description": "🔥 Fresh weekend drops from #ink_wisps — follow us to stay in the loop!"
     },
     "Saturday": {
-      "caption": "✨ Slow down this Saturday ✨ #ink_wisps"
+      "caption": "🌙 Soft Saturdays in ink. #ink_wisps",
+      "description": "🖼️ Let your weekend breathe — one reel at a time. #ink_wisps"
+    },
+    "Sunday": {
+      "caption": "🖤 Silent Sundays with strokes of ink. #ink_wisps",
+      "description": "☁️ Relax, reflect, and enjoy today’s drop. Follow #ink_wisps."
     }
   }
 }
