@@ -15,6 +15,8 @@ class DropboxToInstagramUploader:
     INSTAGRAM_API_BASE = "https://graph.facebook.com/v18.0"
     INSTAGRAM_REEL_STATUS_RETRIES = 20
     INSTAGRAM_REEL_STATUS_WAIT_TIME = 5
+    INSTAGRAM_PUBLISH_VERIFICATION_RETRIES = 5
+    INSTAGRAM_PUBLISH_VERIFICATION_WAIT_TIME = 3
 
     def __init__(self):
         self.script_name = "ink_wisps_post.py"
@@ -141,6 +143,39 @@ class DropboxToInstagramUploader:
         except Exception as e:
             self.send_message(f"❌ Failed to read caption/description from config: {e}", level=logging.ERROR)
             return "✨ #eclipsed_by_you ✨", "✨ #eclipsed_by_you ✨"
+
+    def verify_instagram_post_published(self, ig_media_id, page_token):
+        """Poll Instagram to verify the post was actually published."""
+        self.send_message("🔄 Verifying Instagram post is live...")
+        
+        for attempt in range(self.INSTAGRAM_PUBLISH_VERIFICATION_RETRIES):
+            time.sleep(self.INSTAGRAM_PUBLISH_VERIFICATION_WAIT_TIME)
+            
+            try:
+                # Check if the media exists and is published
+                media_check_url = f"{self.INSTAGRAM_API_BASE}/{ig_media_id}"
+                params = {
+                    "fields": "id,media_type,media_url,thumbnail_url,permalink,timestamp",
+                    "access_token": page_token
+                }
+                
+                media_check = requests.get(media_check_url, params=params)
+                
+                if media_check.status_code == 200:
+                    media_data = media_check.json()
+                    if media_data.get("id"):
+                        self.send_message("✅ Instagram post verification successful - post is live!")
+                        return True
+                    else:
+                        self.send_message(f"⏳ Instagram media not fully published yet (attempt {attempt+1}/{self.INSTAGRAM_PUBLISH_VERIFICATION_RETRIES})")
+                else:
+                    self.send_message(f"⏳ Instagram media not found yet (attempt {attempt+1}/{self.INSTAGRAM_PUBLISH_VERIFICATION_RETRIES})")
+                    
+            except Exception as e:
+                self.send_message(f"⚠️ Error checking Instagram media: {e}")
+                
+        self.send_message("⚠️ Could not verify Instagram post after all attempts", level=logging.WARNING)
+        return False
 
     def parallel_post(self, dbx, file, caption, description):
         """Post to Instagram and Facebook concurrently, delete only if both succeed."""
@@ -299,6 +334,9 @@ class DropboxToInstagramUploader:
                 
                 time.sleep(self.INSTAGRAM_REEL_STATUS_WAIT_TIME)
 
+        # Add delay before publishing to avoid premature publish
+        time.sleep(5)
+        
         # Publish to Instagram
         publish_url = f"{self.INSTAGRAM_API_BASE}/{self.ig_id}/media_publish"
         publish_data = {"creation_id": creation_id, "access_token": page_token}
@@ -308,12 +346,25 @@ class DropboxToInstagramUploader:
         if pub.status_code == 200:
             response_data = pub.json()
             instagram_id = response_data.get("id", "Unknown")
-            self.send_message(f"✅ Instagram post published! Media ID: {instagram_id}")
-            return True, media_type
+            self.send_message(f"✅ Instagram publish API call successful! Media ID: {instagram_id}")
+            
+            # Verify the post was actually published using polling
+            if instagram_id and instagram_id != "Unknown":
+                verification_success = self.verify_instagram_post_published(instagram_id, page_token)
+                if verification_success:
+                    self.send_message(f"✅ Instagram post confirmed live! Media ID: {instagram_id}")
+                    return True, media_type
+                else:
+                    self.send_message("⚠️ Instagram publish API succeeded but verification failed", level=logging.WARNING)
+                    # Still return True since the API call succeeded
+                    return True, media_type
+            else:
+                self.send_message("⚠️ Instagram publish succeeded but no media ID returned", level=logging.WARNING)
+                return True, media_type
         else:
             error_msg = pub.json().get("error", {}).get("message", "Unknown error")
             error_code = pub.json().get("error", {}).get("code", "N/A")
-            self.send_message(f"❌ Instagram publish failed: {name}\nError: {error_msg} | Code: {error_code}", level=logging.ERROR)
+            self.send_message(f"❌ Instagram publish API failed: {name}\nError: {error_msg} | Code: {error_code}", level=logging.ERROR)
             return False, media_type
 
     def post_to_facebook_page_only(self, video_url, caption):
