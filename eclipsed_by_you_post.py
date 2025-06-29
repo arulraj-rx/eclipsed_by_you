@@ -177,19 +177,25 @@ class DropboxToInstagramUploader:
                     results["instagram"] = False
 
         def post_facebook():
-            """Post to Facebook only."""
-            try:
-                success = self.post_to_facebook_page_only(temp_link, description)
+            """Post to Facebook only for REELS content."""
+            if media_type == "REELS":
+                try:
+                    success = self.post_to_facebook_page_only(temp_link, description)
+                    with lock:
+                        results["facebook"] = success
+                    if success:
+                        self.send_message("✅ Facebook upload completed successfully")
+                    else:
+                        self.send_message("❌ Facebook upload failed")
+                except Exception as e:
+                    self.send_message(f"❌ Facebook upload exception: {e}", level=logging.ERROR)
+                    with lock:
+                        results["facebook"] = False
+            else:
+                # For images, skip Facebook upload
                 with lock:
-                    results["facebook"] = success
-                if success:
-                    self.send_message("✅ Facebook upload completed successfully")
-                else:
-                    self.send_message("❌ Facebook upload failed")
-            except Exception as e:
-                self.send_message(f"❌ Facebook upload exception: {e}", level=logging.ERROR)
-                with lock:
-                    results["facebook"] = False
+                    results["facebook"] = True  # Mark as success to avoid blocking
+                self.send_message("⏭️ Skipping Facebook upload for image content")
 
         # Start both threads
         t1 = threading.Thread(target=post_instagram)
@@ -214,7 +220,11 @@ class DropboxToInstagramUploader:
                 self.send_message(f"🗑️ Deleted file after successful posts: {file.name}")
             except Exception as e:
                 self.send_message(f"⚠️ Failed to delete file {file.name}: {e}", level=logging.WARNING)
-            self.send_message("🎉 Successfully posted to both Instagram and Facebook!")
+            
+            if media_type == "REELS":
+                self.send_message("🎉 Successfully posted to both Instagram and Facebook!")
+            else:
+                self.send_message("🎉 Successfully posted to Instagram (Facebook skipped for image)")
             return True, media_type
         else:
             # One or both failed - don't delete file
