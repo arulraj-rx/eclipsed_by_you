@@ -12,8 +12,8 @@ from pytz import timezone, utc
 class DropboxToInstagramUploader:
     DROPBOX_TOKEN_URL = "https://api.dropbox.com/oauth2/token"
     INSTAGRAM_API_BASE = "https://graph.facebook.com/v18.0"
-    INSTAGRAM_REEL_STATUS_RETRIES = 20
-    INSTAGRAM_REEL_STATUS_WAIT_TIME = 5
+    INSTAGRAM_REEL_STATUS_RETRIES = 10
+    INSTAGRAM_REEL_STATUS_WAIT_TIME = 3
 
     def __init__(self):
         self.script_name = "ink_wisps_post.py"
@@ -304,9 +304,9 @@ class DropboxToInstagramUploader:
                     processing_time = time.time() - processing_start
                     self.log_console_only(f"✅ Instagram video processing completed in {processing_time:.2f} seconds!", level=logging.INFO)
                     
-                    # Wait 15 seconds after FINISHED status before publishing (official recommendation)
-                    self.log_console_only("⏳ Waiting 15 seconds before publishing (official recommendation)...", level=logging.INFO)
-                    time.sleep(15)
+                    # Wait 8 seconds after FINISHED status before publishing (reduced from 15)
+                    self.log_console_only("⏳ Waiting 8 seconds before publishing...", level=logging.INFO)
+                    time.sleep(8)
                     break
                 elif current_status == "ERROR":
                     self.send_message(f"❌ Instagram processing failed: {name}\n📸 Status: ERROR", level=logging.ERROR)
@@ -973,6 +973,10 @@ class DropboxToInstagramUploader:
                     self.log_console_only(f"📂 Media Type: {media_type}", level=logging.INFO)
                     self.log_console_only(f"⏰ Created: {created_time}", level=logging.INFO)
                     return True
+                elif res.status_code == 400:
+                    self.send_message("⚠️ Permanent error on verification (400 Bad Request), stopping early.", level=logging.WARNING)
+                    self.log_console_only(f"❌ Unrecoverable error on attempt {attempt + 1}: {res.status_code}", level=logging.INFO)
+                    break
                 else:
                     self.log_console_only(f"❌ Verification failed (attempt {attempt + 1}): {res.status_code}", level=logging.INFO)
                     if attempt < 9:  # Don't sleep on last attempt
@@ -1017,6 +1021,10 @@ class DropboxToInstagramUploader:
                     self.log_console_only(f"⏰ Created: {created_time}", level=logging.INFO)
                     self.log_console_only(f"⏱️ Length: {length} seconds", level=logging.INFO)
                     return True
+                elif res.status_code == 400:
+                    self.send_message("⚠️ Permanent error on Facebook verification (400 Bad Request), stopping early.", level=logging.WARNING)
+                    self.log_console_only(f"❌ Unrecoverable error on attempt {attempt + 1}: {res.status_code}", level=logging.INFO)
+                    break
                 else:
                     self.log_console_only(f"❌ Verification failed (attempt {attempt + 1}): {res.status_code}", level=logging.INFO)
                     if attempt < 9:  # Don't sleep on last attempt
