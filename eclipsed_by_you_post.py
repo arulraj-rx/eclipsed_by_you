@@ -14,10 +14,6 @@ class DropboxToInstagramUploader:
     INSTAGRAM_API_BASE = "https://graph.facebook.com/v18.0"
     INSTAGRAM_REEL_STATUS_RETRIES = 20
     INSTAGRAM_REEL_STATUS_WAIT_TIME = 5
-    # New polling configuration for media verification
-    MEDIA_VERIFICATION_POLLING_DURATION = 120  # 2 minutes in seconds
-    MEDIA_VERIFICATION_POLLING_INTERVAL = 10   # Check every 10 seconds
-    MEDIA_VERIFICATION_MAX_ATTEMPTS = 12       # 120 seconds / 10 seconds = 12 attempts
 
     def __init__(self):
         self.script_name = "ink_wisps_post.py"
@@ -258,7 +254,7 @@ class DropboxToInstagramUploader:
             err = res.json().get("error", {}).get("message", "Unknown")
             code = res.json().get("error", {}).get("code", "N/A")
             self.send_message(f"❌ Instagram upload failed: {name}\n📸 Error: {err}\n📸 Code: {code}\n📸 Status: {res.status_code}", level=logging.ERROR)
-            return False, media_type
+            return False
 
         creation_id = res.json().get("id")
         if not creation_id:
@@ -315,32 +311,10 @@ class DropboxToInstagramUploader:
             instagram_id = response_data.get("id", "Unknown")
             self.send_message(f"✅ Instagram post published successfully!\n📸 Media ID: {instagram_id}\n📸 Account ID: {self.ig_id}\n📦 Files left: {total_files - 1}")
             
-            # Step 5: Verify Instagram post with polling
-            self.send_message("🔍 Step 5: Starting Instagram media verification polling...", level=logging.INFO)
-            instagram_verified, instagram_result = self.poll_instagram_media_status(instagram_id, page_token)
-            
-            if instagram_verified:
-                self.send_message("🎉 Instagram post verification COMPLETED successfully!", level=logging.INFO)
-            else:
-                self.send_message("⚠️ Instagram post verification incomplete - post may still be processing", level=logging.WARNING)
-            
-            # Initialize Facebook verification variables
-            facebook_verified = None
-            facebook_result = None
-            
             # Also post to Facebook Page if it's a REEL (using the same page token)
             if media_type == "REELS":
-                self.send_message("📘 Step 6: Starting Facebook Page upload...", level=logging.INFO)
-                facebook_success, facebook_verified, facebook_result = self.post_to_facebook_page(temp_link, description, page_token)
-                
-                if facebook_success:
-                    self.send_message("✅ Facebook Page upload and verification completed successfully!", level=logging.INFO)
-                else:
-                    self.send_message("❌ Facebook Page upload failed", level=logging.ERROR)
-            
-            # Send comprehensive posting summary
-            self.send_message("�� Generating posting summary...", level=logging.INFO)
-            self.send_posting_summary(instagram_verified, instagram_result, facebook_verified, facebook_result, media_type)
+                self.send_message("📘 Step 5: Starting Facebook Page upload...", level=logging.INFO)
+                self.post_to_facebook_page(temp_link, description, page_token)
             
             # Removed file deletion from here
             return True, media_type
@@ -354,7 +328,7 @@ class DropboxToInstagramUploader:
         """Publish the Reel video also to the Facebook Page."""
         if not self.fb_page_id:
             self.send_message("⚠️ Facebook Page ID not configured, skipping Facebook post", level=logging.WARNING)
-            return False, False, f"Facebook Page ID not configured"
+            return False
             
         self.send_message("📘 Starting Facebook Page upload...", level=logging.INFO)
         
@@ -364,7 +338,7 @@ class DropboxToInstagramUploader:
             page_token = self.get_page_access_token()
             if not page_token:
                 self.send_message("❌ Could not retrieve Facebook Page access token. Aborting Facebook upload.", level=logging.ERROR)
-                return False, False, f"Could not retrieve Facebook Page access token"
+                return False
         else:
             self.send_message("🔐 Using shared Facebook Page Access Token for Facebook upload", level=logging.INFO)
 
@@ -385,7 +359,7 @@ class DropboxToInstagramUploader:
         # Verify this is actually a page token
         if not self.verify_token_type(page_token):
             self.send_message("❌ Token verification failed - not a valid page token", level=logging.ERROR)
-            return False, False, f"Token verification failed - not a valid page token"
+            return False
         
         try:
             self.send_message("🔄 Sending request to Facebook API...", level=logging.INFO)
@@ -402,25 +376,15 @@ class DropboxToInstagramUploader:
                 response_data = res.json()
                 video_id = response_data.get("id", "Unknown")
                 self.send_message(f"✅ Facebook Page post published successfully!\n📘 Video ID: {video_id}\n📘 Page ID: {self.fb_page_id}")
-                
-                # Step 7: Verify Facebook video with polling
-                self.send_message("🔍 Step 7: Starting Facebook video verification polling...", level=logging.INFO)
-                facebook_verified, facebook_result = self.poll_facebook_media_status(video_id, page_token)
-                
-                if facebook_verified:
-                    self.send_message("🎉 Facebook video verification COMPLETED successfully!", level=logging.INFO)
-                else:
-                    self.send_message("⚠️ Facebook video verification incomplete - video may still be processing", level=logging.WARNING)
-                
-                return True, facebook_verified, facebook_result
+                return True
             else:
                 error_msg = res.json().get("error", {}).get("message", "Unknown error")
                 error_code = res.json().get("error", {}).get("code", "N/A")
                 self.send_message(f"❌ Facebook Page upload failed:\n📘 Error: {error_msg}\n📘 Code: {error_code}\n📘 Status: {res.status_code}", level=logging.ERROR)
-                return False, False, f"Upload failed: {error_msg}"
+                return False
         except Exception as e:
             self.send_message(f"❌ Facebook Page upload exception:\n📘 Error: {str(e)}", level=logging.ERROR)
-            return False, False, f"Exception: {str(e)}"
+            return False
 
     def authenticate_dropbox(self):
         """Authenticate with Dropbox and return the client."""
@@ -431,46 +395,46 @@ class DropboxToInstagramUploader:
             self.send_message(f"❌ Dropbox authentication failed: {str(e)}", level=logging.ERROR)
             raise
 
-    def process_files_with_retries(self, dbx, caption, description, max_retries=3):
+    def process_files_with_retries(self, dbx, caption, description, max_retries=1):
         files = self.list_dropbox_files(dbx)
         if not files:
             self.send_message("📭 No files found in Dropbox folder.", level=logging.INFO)
             return False
 
-        attempts = 0
-        for file in files[:max_retries]:
-            attempts += 1
-            self.send_message(f"🎯 Attempt {attempts}/{max_retries} — Trying: {file.name}", level=logging.INFO)
-            try:
-                result = self.post_to_instagram(dbx, file, caption, description)
-                if isinstance(result, tuple):
-                    success, media_type = result
-                else:
-                    success = result
-                    media_type = None
-            except Exception as e:
-                self.send_message(f"❌ Exception during post for {file.name}: {e}", level=logging.ERROR)
-                success = False
+        # Process only the first file - no retries
+        file = files[0]
+        self.send_message(f"🎯 Processing single file: {file.name}", level=logging.INFO)
+        
+        try:
+            result = self.post_to_instagram(dbx, file, caption, description)
+            if isinstance(result, tuple):
+                success, media_type = result
+            else:
+                success = result
                 media_type = None
+        except Exception as e:
+            self.send_message(f"❌ Exception during post for {file.name}: {e}", level=logging.ERROR)
+            success = False
+            media_type = None
 
-            # Always delete the file after an attempt
+        # Always delete the file after an attempt
             try:
                 dbx.files_delete_v2(file.path_lower)
                 self.send_message(f"🗑️ Deleted file after attempt: {file.name}")
             except Exception as e:
                 self.send_message(f"⚠️ Failed to delete file {file.name}: {e}", level=logging.WARNING)
 
-            if success:
-                if media_type == "REELS":
-                    self.send_message("✅ Successfully posted one reel to Instagram", level=logging.INFO)
-                elif media_type == "IMAGE":
-                    self.send_message("✅ Successfully posted one image to Instagram", level=logging.INFO)
-                else:
-                    self.send_message("✅ Successfully posted to Instagram", level=logging.INFO)
-                return True  # Exit after successful post
-
-        self.send_message("❌ All attempts failed. Exiting after 3 tries.", level=logging.ERROR)
-        return False
+        if success:
+            if media_type == "REELS":
+                self.send_message("✅ Successfully posted one reel to Instagram", level=logging.INFO)
+            elif media_type == "IMAGE":
+                self.send_message("✅ Successfully posted one image to Instagram", level=logging.INFO)
+            else:
+                self.send_message("✅ Successfully posted to Instagram", level=logging.INFO)
+            return True  # Exit after single post
+        else:
+            self.send_message("❌ Single post attempt failed. No retries.", level=logging.ERROR)
+            return False
 
     def run(self):
         """Main execution method that orchestrates the posting process."""
@@ -492,13 +456,13 @@ class DropboxToInstagramUploader:
             # Authenticate with Dropbox
             dbx = self.authenticate_dropbox()
             
-            # Try posting up to 3 times
-            success = self.process_files_with_retries(dbx, caption, description, max_retries=3)
+            # Try posting one file only
+            success = self.process_files_with_retries(dbx, caption, description, max_retries=1)
             
             if success:
-                self.send_message("🎉 All publishing completed successfully!", level=logging.INFO)
+                self.send_message("🎉 Single post completed successfully!", level=logging.INFO)
             else:
-                self.send_message("❌ Publishing failed after all attempts.", level=logging.ERROR)
+                self.send_message("❌ Single post failed.", level=logging.ERROR)
             
         except Exception as e:
             self.send_message(f"❌ Script crashed:\n{str(e)}", level=logging.ERROR)
@@ -899,193 +863,6 @@ class DropboxToInstagramUploader:
         except Exception as e:
             self.send_message(f"❌ Exception verifying token type: {e}", level=logging.ERROR)
             return False
-
-    def poll_instagram_media_status(self, media_id, page_token):
-        """Poll Instagram media status to verify successful posting."""
-        try:
-            self.send_message(f"🔍 Starting Instagram media verification polling for ID: {media_id}", level=logging.INFO)
-            self.send_message(f"⏱️ Polling duration: {self.MEDIA_VERIFICATION_POLLING_DURATION} seconds", level=logging.INFO)
-            self.send_message(f"🔄 Polling interval: {self.MEDIA_VERIFICATION_POLLING_INTERVAL} seconds", level=logging.INFO)
-            
-            polling_start_time = time.time()
-            attempt_count = 0
-            
-            while attempt_count < self.MEDIA_VERIFICATION_MAX_ATTEMPTS:
-                attempt_count += 1
-                elapsed_time = time.time() - polling_start_time
-                
-                self.send_message(f"🔄 Polling attempt {attempt_count}/{self.MEDIA_VERIFICATION_MAX_ATTEMPTS} (Elapsed: {elapsed_time:.1f}s)", level=logging.INFO)
-                
-                # Get media details from Instagram API
-                url = f"{self.INSTAGRAM_API_BASE}/{media_id}"
-                params = {
-                    "fields": "id,media_type,media_url,thumbnail_url,permalink,status_code,owner",
-                    "access_token": page_token
-                }
-                
-                self.send_message(f"📡 Checking Instagram media: {url}", level=logging.INFO)
-                
-                start_time = time.time()
-                response = requests.get(url, params=params)
-                request_time = time.time() - start_time
-                
-                self.send_message(f"⏱️ Media check completed in {request_time:.2f} seconds", level=logging.INFO)
-                self.send_message(f"📊 Response status: {response.status_code}", level=logging.INFO)
-                
-                if response.status_code == 200:
-                    media_data = response.json()
-                    media_type = media_data.get("media_type", "Unknown")
-                    permalink = media_data.get("permalink", "N/A")
-                    status_code = media_data.get("status_code", "N/A")
-                    
-                    self.send_message(f"📸 Media Details:", level=logging.INFO)
-                    self.send_message(f"   📝 Type: {media_type}", level=logging.INFO)
-                    self.send_message(f"   🔗 Permalink: {permalink}", level=logging.INFO)
-                    self.send_message(f"   📊 Status: {status_code}", level=logging.INFO)
-                    
-                    # Check if media is successfully published
-                    if permalink and permalink != "N/A":
-                        self.send_message(f"✅ Instagram media verification SUCCESSFUL!", level=logging.INFO)
-                        self.send_message(f"🎉 Post is live at: {permalink}", level=logging.INFO)
-                        return True, permalink
-                    elif status_code == "FINISHED":
-                        self.send_message(f"✅ Instagram media processing FINISHED!", level=logging.INFO)
-                        return True, "Processing completed"
-                    else:
-                        self.send_message(f"⏳ Media still processing... Status: {status_code}", level=logging.INFO)
-                else:
-                    error_msg = response.json().get("error", {}).get("message", "Unknown error")
-                    self.send_message(f"❌ Media check failed: {error_msg}", level=logging.ERROR)
-                
-                # Wait before next poll (except on last attempt)
-                if attempt_count < self.MEDIA_VERIFICATION_MAX_ATTEMPTS:
-                    self.send_message(f"⏳ Waiting {self.MEDIA_VERIFICATION_POLLING_INTERVAL} seconds before next check...", level=logging.INFO)
-                    time.sleep(self.MEDIA_VERIFICATION_POLLING_INTERVAL)
-            
-            # If we reach here, polling timed out
-            total_time = time.time() - polling_start_time
-            self.send_message(f"⏰ Instagram media verification TIMEOUT after {total_time:.1f} seconds", level=logging.WARNING)
-            self.send_message(f"⚠️ Media ID {media_id} verification incomplete - post may still be processing", level=logging.WARNING)
-            return False, "Polling timeout"
-            
-        except Exception as e:
-            self.send_message(f"❌ Exception during Instagram media polling: {e}", level=logging.ERROR)
-            return False, f"Exception: {str(e)}"
-
-    def poll_facebook_media_status(self, video_id, page_token):
-        """Poll Facebook video status to verify successful posting."""
-        try:
-            self.send_message(f"🔍 Starting Facebook video verification polling for ID: {video_id}", level=logging.INFO)
-            self.send_message(f"⏱️ Polling duration: {self.MEDIA_VERIFICATION_POLLING_DURATION} seconds", level=logging.INFO)
-            self.send_message(f"🔄 Polling interval: {self.MEDIA_VERIFICATION_POLLING_INTERVAL} seconds", level=logging.INFO)
-            
-            polling_start_time = time.time()
-            attempt_count = 0
-            
-            while attempt_count < self.MEDIA_VERIFICATION_MAX_ATTEMPTS:
-                attempt_count += 1
-                elapsed_time = time.time() - polling_start_time
-                
-                self.send_message(f"🔄 Polling attempt {attempt_count}/{self.MEDIA_VERIFICATION_MAX_ATTEMPTS} (Elapsed: {elapsed_time:.1f}s)", level=logging.INFO)
-                
-                # Get video details from Facebook API
-                url = f"https://graph.facebook.com/v18.0/{video_id}"
-                params = {
-                    "fields": "id,title,description,permalink_url,status,length,views",
-                    "access_token": page_token
-                }
-                
-                self.send_message(f"📡 Checking Facebook video: {url}", level=logging.INFO)
-                
-                start_time = time.time()
-                response = requests.get(url, params=params)
-                request_time = time.time() - start_time
-                
-                self.send_message(f"⏱️ Video check completed in {request_time:.2f} seconds", level=logging.INFO)
-                self.send_message(f"📊 Response status: {response.status_code}", level=logging.INFO)
-                
-                if response.status_code == 200:
-                    video_data = response.json()
-                    title = video_data.get("title", "N/A")
-                    permalink_url = video_data.get("permalink_url", "N/A")
-                    status = video_data.get("status", "N/A")
-                    views = video_data.get("views", "N/A")
-                    
-                    self.send_message(f"📘 Video Details:", level=logging.INFO)
-                    self.send_message(f"   📝 Title: {title}", level=logging.INFO)
-                    self.send_message(f"   🔗 Permalink: {permalink_url}", level=logging.INFO)
-                    self.send_message(f"   📊 Status: {status}", level=logging.INFO)
-                    self.send_message(f"   👀 Views: {views}", level=logging.INFO)
-                    
-                    # Check if video is successfully published
-                    if permalink_url and permalink_url != "N/A":
-                        self.send_message(f"✅ Facebook video verification SUCCESSFUL!", level=logging.INFO)
-                        self.send_message(f"🎉 Video is live at: {permalink_url}", level=logging.INFO)
-                        return True, permalink_url
-                    elif status == "ready":
-                        self.send_message(f"✅ Facebook video is READY!", level=logging.INFO)
-                        return True, "Video ready"
-                    else:
-                        self.send_message(f"⏳ Video still processing... Status: {status}", level=logging.INFO)
-                else:
-                    error_msg = response.json().get("error", {}).get("message", "Unknown error")
-                    self.send_message(f"❌ Video check failed: {error_msg}", level=logging.ERROR)
-                
-                # Wait before next poll (except on last attempt)
-                if attempt_count < self.MEDIA_VERIFICATION_MAX_ATTEMPTS:
-                    self.send_message(f"⏳ Waiting {self.MEDIA_VERIFICATION_POLLING_INTERVAL} seconds before next check...", level=logging.INFO)
-                    time.sleep(self.MEDIA_VERIFICATION_POLLING_INTERVAL)
-            
-            # If we reach here, polling timed out
-            total_time = time.time() - polling_start_time
-            self.send_message(f"⏰ Facebook video verification TIMEOUT after {total_time:.1f} seconds", level=logging.WARNING)
-            self.send_message(f"⚠️ Video ID {video_id} verification incomplete - video may still be processing", level=logging.WARNING)
-            return False, "Polling timeout"
-            
-        except Exception as e:
-            self.send_message(f"❌ Exception during Facebook video polling: {e}", level=logging.ERROR)
-            return False, f"Exception: {str(e)}"
-
-    def send_posting_summary(self, instagram_verified, instagram_result, facebook_verified=None, facebook_result=None, media_type=None):
-        """Send a comprehensive summary of the posting process."""
-        try:
-            summary = "📊 POSTING SUMMARY REPORT\n" + "="*50 + "\n"
-            
-            # Instagram Summary
-            summary += "📸 INSTAGRAM:\n"
-            if instagram_verified:
-                summary += f"   ✅ Status: VERIFIED\n"
-                summary += f"   🔗 Result: {instagram_result}\n"
-            else:
-                summary += f"   ⚠️ Status: VERIFICATION INCOMPLETE\n"
-                summary += f"   📝 Result: {instagram_result}\n"
-            
-            # Facebook Summary (only for REELS)
-            if media_type == "REELS":
-                summary += "\n📘 FACEBOOK:\n"
-                if facebook_verified:
-                    summary += f"   ✅ Status: VERIFIED\n"
-                    summary += f"   🔗 Result: {facebook_result}\n"
-                else:
-                    summary += f"   ⚠️ Status: VERIFICATION INCOMPLETE\n"
-                    summary += f"   📝 Result: {facebook_result}\n"
-            
-            # Overall Status
-            summary += "\n🎯 OVERALL STATUS:\n"
-            if instagram_verified and (media_type != "REELS" or facebook_verified):
-                summary += "   🎉 ALL PLATFORMS VERIFIED SUCCESSFULLY!\n"
-            elif instagram_verified:
-                summary += "   ✅ Instagram verified, Facebook pending\n"
-            else:
-                summary += "   ⚠️ Verification incomplete on some platforms\n"
-            
-            summary += f"\n⏱️ Polling Duration: {self.MEDIA_VERIFICATION_POLLING_DURATION} seconds"
-            summary += f"\n🔄 Polling Interval: {self.MEDIA_VERIFICATION_POLLING_INTERVAL} seconds"
-            
-            self.send_message(summary, level=logging.INFO)
-            
-        except Exception as e:
-            self.send_message(f"❌ Exception sending posting summary: {e}", level=logging.ERROR)
 
 if __name__ == "__main__":
     DropboxToInstagramUploader().run()
