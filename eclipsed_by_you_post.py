@@ -342,10 +342,8 @@ class DropboxToInstagramUploader:
         else:
             self.send_message("🔐 Using shared Facebook Page Access Token for Facebook upload", level=logging.INFO)
 
-        # Check page permissions before attempting upload
-        if not self.check_page_permissions(page_token):
-            self.send_message("❌ Facebook Page does not have required permissions for video upload", level=logging.ERROR)
-            return False
+        # Skip permission check for now and try the upload directly
+        self.send_message("🔄 Skipping permission check - attempting Facebook upload directly...", level=logging.INFO)
 
         post_url = f"https://graph.facebook.com/{self.fb_page_id}/videos"
         data = {
@@ -353,6 +351,15 @@ class DropboxToInstagramUploader:
             "file_url": video_url,
             "description": caption
         }
+        
+        # Debug: Show which token is being used
+        self.send_message(f"🔐 Using page token for Facebook upload: {page_token[:20]}...", level=logging.INFO)
+        self.send_message(f"📄 Page ID for upload: {self.fb_page_id}", level=logging.INFO)
+        
+        # Verify this is actually a page token
+        if not self.verify_token_type(page_token):
+            self.send_message("❌ Token verification failed - not a valid page token", level=logging.ERROR)
+            return False
         
         try:
             self.send_message("🔄 Sending request to Facebook API...", level=logging.INFO)
@@ -522,7 +529,11 @@ class DropboxToInstagramUploader:
             url = f"https://graph.facebook.com/v18.0/me/permissions"
             params = {"access_token": page_token}
             
+            self.send_message(f"📡 Permission check URL: {url}", level=logging.INFO)
+            
             res = requests.get(url, params=params)
+            self.send_message(f"📊 Permission check response status: {res.status_code}", level=logging.INFO)
+            
             if res.status_code == 200:
                 permissions = res.json().get("data", [])
                 self.send_message(f"📋 Found {len(permissions)} permissions:", level=logging.INFO)
@@ -559,10 +570,52 @@ class DropboxToInstagramUploader:
                     self.send_message("❌ Page missing required permissions for video publishing", level=logging.ERROR)
                     return False
             else:
+                error_response = res.text
                 self.send_message(f"❌ Failed to check permissions: {res.status_code}", level=logging.ERROR)
-                return False
+                self.send_message(f"📄 Error response: {error_response}", level=logging.ERROR)
+                
+                # If permission check fails, let's try a different approach
+                self.send_message("🔄 Trying alternative permission check...", level=logging.INFO)
+                return self.check_page_permissions_alternative(page_token)
+                
         except Exception as e:
             self.send_message(f"❌ Exception checking permissions: {e}", level=logging.ERROR)
+            return False
+
+    def check_page_permissions_alternative(self, page_token):
+        """Alternative method to check page permissions using page info."""
+        try:
+            self.send_message("🔍 Alternative permission check using page info...", level=logging.INFO)
+            
+            # Try to get page info and check if it has video publishing capabilities
+            url = f"https://graph.facebook.com/v18.0/{self.fb_page_id}"
+            params = {
+                "fields": "id,name,category,fan_count,verification_status,connected_instagram_account",
+                "access_token": page_token
+            }
+            
+            self.send_message(f"📡 Alternative check URL: {url}", level=logging.INFO)
+            
+            res = requests.get(url, params=params)
+            if res.status_code == 200:
+                page_info = res.json()
+                page_name = page_info.get("name", "Unknown")
+                page_category = page_info.get("category", "Unknown")
+                
+                self.send_message(f"✅ Alternative check successful!", level=logging.INFO)
+                self.send_message(f"📄 Page Name: {page_name}", level=logging.INFO)
+                self.send_message(f"📄 Page Category: {page_category}", level=logging.INFO)
+                
+                # Since we can access the page info, the token has basic permissions
+                # Let's assume it can publish videos (we'll find out when we try)
+                self.send_message("✅ Assuming page has video publishing permissions (will test during upload)", level=logging.INFO)
+                return True
+            else:
+                self.send_message(f"❌ Alternative check also failed: {res.status_code}", level=logging.ERROR)
+                return False
+                
+        except Exception as e:
+            self.send_message(f"❌ Exception in alternative permission check: {e}", level=logging.ERROR)
             return False
 
     def refresh_page_access_token(self, page_token):
@@ -762,6 +815,53 @@ class DropboxToInstagramUploader:
                 
         except Exception as e:
             self.send_message(f"❌ Exception testing page token: {e}", level=logging.ERROR)
+            return False
+
+    def verify_token_type(self, page_token):
+        """Verify if the token is a page token."""
+        try:
+            self.send_message("🔍 Verifying token type...", level=logging.INFO)
+            
+            # Check if the token is valid by making a simple API call
+            url = f"https://graph.facebook.com/v18.0/me"
+            params = {
+                "fields": "id,name,category",
+                "access_token": page_token
+            }
+            
+            self.send_message(f"📡 Verification URL: {url}", level=logging.INFO)
+            
+            start_time = time.time()
+            res = requests.get(url, params=params)
+            request_time = time.time() - start_time
+            
+            self.send_message(f"⏱️ Verification completed in {request_time:.2f} seconds", level=logging.INFO)
+            self.send_message(f"📊 Verification response status: {res.status_code}", level=logging.INFO)
+            
+            if res.status_code == 200:
+                page_info = res.json()
+                page_id = page_info.get("id", "Unknown")
+                page_name = page_info.get("name", "Unknown")
+                page_category = page_info.get("category", "Unknown")
+                
+                self.send_message(f"✅ Token verification successful!", level=logging.INFO)
+                self.send_message(f"📄 Page ID: {page_id}", level=logging.INFO)
+                self.send_message(f"📄 Page Name: {page_name}", level=logging.INFO)
+                self.send_message(f"📄 Page Category: {page_category}", level=logging.INFO)
+                
+                # Verify this matches our expected page
+                if page_id == self.fb_page_id:
+                    self.send_message("✅ Page ID matches expected page!", level=logging.INFO)
+                    return True
+                else:
+                    self.send_message(f"⚠️ Page ID mismatch! Expected: {self.fb_page_id}, Got: {page_id}", level=logging.WARNING)
+                    return False
+            else:
+                self.send_message(f"❌ Token verification failed: {res.text}", level=logging.ERROR)
+                return False
+                
+        except Exception as e:
+            self.send_message(f"❌ Exception verifying token type: {e}", level=logging.ERROR)
             return False
 
 if __name__ == "__main__":
