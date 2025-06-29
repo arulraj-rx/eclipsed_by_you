@@ -120,17 +120,32 @@ class DropboxToInstagramUploader:
             pages = res.json().get("data", [])
             self.send_message(f"🔍 Found {len(pages)} pages in user account", level=logging.INFO)
             
+            # Show all available pages with details
+            self.send_message("📋 Available Pages:", level=logging.INFO)
             for i, page in enumerate(pages):
                 page_id = page.get("id", "Unknown")
                 page_name = page.get("name", "Unknown")
-                self.send_message(f"📋 Page {i+1}: {page_name} (ID: {page_id})", level=logging.INFO)
+                category = page.get("category", "Unknown")
+                tasks = page.get("tasks", [])
                 
+                self.send_message(f"📄 Page {i+1}:", level=logging.INFO)
+                self.send_message(f"   📝 Name: {page_name}", level=logging.INFO)
+                self.send_message(f"   🆔 ID: {page_id}", level=logging.INFO)
+                self.send_message(f"   📂 Category: {category}", level=logging.INFO)
+                self.send_message(f"   🔧 Tasks: {', '.join(tasks)}", level=logging.INFO)
+                
+                # Check if this is the target page
                 if page_id == self.fb_page_id:
-                    token = page.get("access_token")
+                    self.send_message(f"   ✅ MATCH FOUND! This is your target page", level=logging.INFO)
+                    page_token = self.exchange_user_token_for_page_token(page_id)
                     self.send_message(f"✅ Page Access Token fetched successfully for: {page_name} (ID: {self.fb_page_id})")
-                    return token
+                    return page_token
+                else:
+                    self.send_message(f"   ❌ Not matching target page ID: {self.fb_page_id}", level=logging.INFO)
 
+            # If no match found, show configuration help
             self.send_message(f"⚠️ Page ID {self.fb_page_id} not found in user's account list.", level=logging.WARNING)
+            self.send_message("💡 To fix this, update your FB_PAGE_ID environment variable with one of the page IDs shown above.", level=logging.INFO)
             return None
         except Exception as e:
             self.send_message(f"❌ Exception during Page token fetch: {e}", level=logging.ERROR)
@@ -289,7 +304,7 @@ class DropboxToInstagramUploader:
             # Also post to Facebook Page if it's a REEL
             if media_type == "REELS":
                 self.send_message("📘 Step 5: Starting Facebook Page upload...", level=logging.INFO)
-                self.post_to_facebook_page(temp_link, description)
+                self.post_to_facebook_page(temp_link, description, page_token)
             
             # Removed file deletion from here
             return True, media_type
@@ -299,7 +314,7 @@ class DropboxToInstagramUploader:
             self.send_message(f"❌ Instagram publish failed: {name}\n📸 Error: {error_msg}\n📸 Code: {error_code}\n📸 Status: {pub.status_code}", level=logging.ERROR)
             return False, media_type
 
-    def post_to_facebook_page(self, video_url, caption):
+    def post_to_facebook_page(self, video_url, caption, page_token=None):
         """Publish the Reel video also to the Facebook Page."""
         if not self.fb_page_id:
             self.send_message("⚠️ Facebook Page ID not configured, skipping Facebook post", level=logging.WARNING)
@@ -307,12 +322,20 @@ class DropboxToInstagramUploader:
             
         self.send_message("📘 Starting Facebook Page upload...", level=logging.INFO)
         
-        page_token = self.get_page_access_token()
+        # Use the page token passed from Instagram upload, or fetch a new one
         if not page_token:
-            self.send_message("❌ Could not retrieve Page access token. Aborting Facebook upload.", level=logging.ERROR)
-            return False
+            self.send_message("🔐 Fetching fresh Page Access Token for Facebook...", level=logging.INFO)
+            page_token = self.get_page_access_token()
+            if not page_token:
+                self.send_message("❌ Could not retrieve Page access token. Aborting Facebook upload.", level=logging.ERROR)
+                return False
+        else:
+            self.send_message("🔐 Using existing Page Access Token for Facebook upload", level=logging.INFO)
 
-        self.send_message("🔐 Using Page Access Token for Facebook upload", level=logging.INFO)
+        # Check page permissions before attempting upload
+        if not self.check_page_permissions(page_token):
+            self.send_message("❌ Page does not have required permissions for video upload", level=logging.ERROR)
+            return False
 
         post_url = f"https://graph.facebook.com/{self.fb_page_id}/videos"
         data = {
@@ -323,7 +346,14 @@ class DropboxToInstagramUploader:
         
         try:
             self.send_message("🔄 Sending request to Facebook API...", level=logging.INFO)
+            self.send_message(f"📡 Facebook API URL: {post_url}", level=logging.INFO)
+            
+            start_time = time.time()
             res = requests.post(post_url, data=data)
+            request_time = time.time() - start_time
+            
+            self.send_message(f"⏱️ Facebook API request completed in {request_time:.2f} seconds", level=logging.INFO)
+            self.send_message(f"📊 Facebook response status: {res.status_code}", level=logging.INFO)
             
             if res.status_code == 200:
                 response_data = res.json()
@@ -400,6 +430,9 @@ class DropboxToInstagramUploader:
                 self.send_message("❌ Token validation failed. Stopping execution.", level=logging.ERROR)
                 return
             
+            # List available pages for configuration help
+            self.list_available_pages()
+            
             # Get caption from config
             caption, description = self.get_caption_from_config()
             
@@ -471,6 +504,140 @@ class DropboxToInstagramUploader:
             message = f"❌ Exception checking token: {str(e)}"
             self.send_message(message, level=logging.ERROR)
             return False
+
+    def check_page_permissions(self, page_token):
+        """Check what permissions the page access token has."""
+        try:
+            self.send_message("🔍 Checking page permissions...", level=logging.INFO)
+            url = f"https://graph.facebook.com/v18.0/me/permissions"
+            params = {"access_token": page_token}
+            
+            res = requests.get(url, params=params)
+            if res.status_code == 200:
+                permissions = res.json().get("data", [])
+                self.send_message(f"📋 Found {len(permissions)} permissions:", level=logging.INFO)
+                
+                for perm in permissions:
+                    permission_name = perm.get("permission", "Unknown")
+                    status = perm.get("status", "Unknown")
+                    self.send_message(f"🔑 {permission_name}: {status}", level=logging.INFO)
+                
+                # Check for specific permissions needed for video upload
+                has_publish_video = any(p.get("permission") == "publish_video" and p.get("status") == "granted" for p in permissions)
+                has_publish_actions = any(p.get("permission") == "publish_actions" and p.get("status") == "granted" for p in permissions)
+                
+                if not has_publish_video:
+                    self.send_message("⚠️ Missing 'publish_video' permission!", level=logging.WARNING)
+                if not has_publish_actions:
+                    self.send_message("⚠️ Missing 'publish_actions' permission!", level=logging.WARNING)
+                
+                return has_publish_video and has_publish_actions
+            else:
+                self.send_message(f"❌ Failed to check permissions: {res.status_code}", level=logging.ERROR)
+                return False
+        except Exception as e:
+            self.send_message(f"❌ Exception checking permissions: {e}", level=logging.ERROR)
+            return False
+
+    def refresh_page_access_token(self, page_token):
+        """Refresh the page access token if it's expired."""
+        try:
+            self.send_message("🔄 Refreshing page access token...", level=logging.INFO)
+            url = f"https://graph.facebook.com/v18.0/oauth/access_token"
+            params = {
+                "grant_type": "fb_exchange_token",
+                "client_id": self.dropbox_key,  # Using app ID
+                "client_secret": self.dropbox_secret,  # Using app secret
+                "fb_exchange_token": page_token
+            }
+            
+            res = requests.get(url, params=params)
+            if res.status_code == 200:
+                new_token = res.json().get("access_token")
+                expires_in = res.json().get("expires_in", "Unknown")
+                self.send_message(f"✅ Page access token refreshed successfully! Expires in: {expires_in} seconds")
+                return new_token
+            else:
+                self.send_message(f"❌ Failed to refresh page token: {res.text}", level=logging.ERROR)
+                return None
+        except Exception as e:
+            self.send_message(f"❌ Exception refreshing page token: {e}", level=logging.ERROR)
+            return None
+
+    def list_available_pages(self):
+        """List all available pages for the user to help with configuration."""
+        try:
+            self.send_message("🔍 Listing all available pages for configuration...", level=logging.INFO)
+            url = f"https://graph.facebook.com/v18.0/me/accounts"
+            params = {"access_token": self.meta_token}
+            
+            res = requests.get(url, params=params)
+            if res.status_code != 200:
+                self.send_message(f"❌ Failed to fetch pages: {res.text}", level=logging.ERROR)
+                return
+
+            pages = res.json().get("data", [])
+            self.send_message(f"📋 Found {len(pages)} pages:", level=logging.INFO)
+            
+            for i, page in enumerate(pages):
+                page_id = page.get("id", "Unknown")
+                page_name = page.get("name", "Unknown")
+                category = page.get("category", "Unknown")
+                tasks = page.get("tasks", [])
+                
+                self.send_message(f"📄 Page {i+1}:", level=logging.INFO)
+                self.send_message(f"   📝 Name: {page_name}", level=logging.INFO)
+                self.send_message(f"   🆔 ID: {page_id}", level=logging.INFO)
+                self.send_message(f"   📂 Category: {category}", level=logging.INFO)
+                self.send_message(f"   🔧 Tasks: {', '.join(tasks)}", level=logging.INFO)
+                
+                # Check if this matches current configuration
+                if page_id == self.fb_page_id:
+                    self.send_message(f"   ✅ CURRENTLY CONFIGURED", level=logging.INFO)
+                else:
+                    self.send_message(f"   ⚙️ To use this page, set FB_PAGE_ID={page_id}", level=logging.INFO)
+            
+            self.send_message("💡 Copy the ID of the page you want to use and set it as FB_PAGE_ID environment variable.", level=logging.INFO)
+            
+        except Exception as e:
+            self.send_message(f"❌ Exception listing pages: {e}", level=logging.ERROR)
+
+    def exchange_user_token_for_page_token(self, page_id):
+        """Exchange user access token for page access token."""
+        try:
+            self.send_message(f"🔄 Exchanging token for page ID: {page_id}", level=logging.INFO)
+            
+            # Use the page token endpoint to get the actual page access token
+            url = f"https://graph.facebook.com/v18.0/{page_id}"
+            params = {
+                "fields": "access_token",
+                "access_token": self.meta_token
+            }
+            
+            self.send_message(f"📡 Exchange API URL: {url}", level=logging.INFO)
+            
+            start_time = time.time()
+            res = requests.get(url, params=params)
+            request_time = time.time() - start_time
+            
+            self.send_message(f"⏱️ Token exchange completed in {request_time:.2f} seconds", level=logging.INFO)
+            self.send_message(f"📊 Exchange response status: {res.status_code}", level=logging.INFO)
+            
+            if res.status_code == 200:
+                page_token = res.json().get("access_token")
+                if page_token:
+                    self.send_message("✅ Page access token obtained successfully!")
+                    return page_token
+                else:
+                    self.send_message("❌ No access_token in response", level=logging.ERROR)
+                    return None
+            else:
+                self.send_message(f"❌ Token exchange failed: {res.text}", level=logging.ERROR)
+                return None
+                
+        except Exception as e:
+            self.send_message(f"❌ Exception during token exchange: {e}", level=logging.ERROR)
+            return None
 
 if __name__ == "__main__":
     DropboxToInstagramUploader().run()
