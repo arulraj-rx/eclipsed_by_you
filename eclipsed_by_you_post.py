@@ -23,7 +23,7 @@ class SocialMediaPoster:
         self.script_name = "📱 eclipsed_by_you"
         
         # API Version
-        self.meta_version = "v22.0"
+        self.meta_version = "v23.0"
 
         # Meta/Facebook configuration - Updated environment variable names
         self.meta_token = os.getenv("META_TOKEN")
@@ -45,9 +45,9 @@ class SocialMediaPoster:
         self.dropbox_folder = "/eclipsed_by_you"
 
         # Constants
-        self.poll_interval = 5
-        self.max_files_to_check = 3  # Check up to 3 files for copyright issues
-        self.max_retries = 3  # Retry attempts for API calls
+        self.poll_interval = 3
+        self.max_files_to_check = 10  # Check up to 3 files for copyright issues
+        self.max_retries = 2  # Retry attempts for API calls
 
         # Initialize bot
         if self.telegram_token:
@@ -138,7 +138,7 @@ class SocialMediaPoster:
         url = f"https://graph.facebook.com/{self.meta_version}/{media_id}"
         params = {"fields": "status_code,copyright_status", "access_token": self.meta_token}
 
-        max_attempts = 10  # Limit to 5 minutes
+        max_attempts = 05  # Limit to 5 minutes
         attempts = 0
 
         while attempts < max_attempts:
@@ -181,7 +181,7 @@ class SocialMediaPoster:
         self.notify("⏸️ Waiting 15 seconds for initial Facebook processing...")
         time.sleep(15)
         
-        max_attempts = 60  # 5 minutes maximum (60 * 5 seconds)
+        max_attempts = 05  # 5 minutes maximum (60 * 5 seconds)
         attempts = 0
         
         while attempts < max_attempts:
@@ -222,7 +222,7 @@ class SocialMediaPoster:
             "access_token": self.meta_token
         }
 
-        max_retries = 10
+        max_retries = 05
         for attempt in range(max_retries):
             try:
                 attempt_num = attempt + 1
