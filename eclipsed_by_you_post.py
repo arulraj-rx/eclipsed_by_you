@@ -32,7 +32,7 @@ class SocialMediaPoster:
         self.ig_collab = os.getenv("IG_COLLABORATOR_ID", "").strip() or None
         self.fb_collabs = [c.strip() for c in os.getenv("FB_COLLABORATOR_IDS", "").split(",") if c.strip()]
         # Hardcoded share to feed - not in environment variables
-        self.ig_share_feed = False  # Set to True if you want to share to feed
+        self.ig_share_feed = True  # Set to True if you want to share to feed
 
         # Telegram configuration
         self.telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
