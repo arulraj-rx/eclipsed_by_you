@@ -1,6 +1,25 @@
 {
-  "eclipsed_by_you": {
-    "caption": "✨ Be your own eclipse ✨ #eclipsedbyyou",
-    "description": "🌙 Reels by @eclipsed.by.you — follow us on Facebook and Instagram!"
+  "ink_wisps": {
+    "Sunday": {
+      "caption": "🌞 Sunday serenity 🌞 #ink_wisps"
+    },
+    "Monday": {
+      "caption": "💼 Start strong this Monday 💼 #ink_wisps"
+    },
+    "Tuesday": {
+      "caption": "🔥 Keep pushing this Tuesday 🔥 #ink_wisps"
+    },
+    "Wednesday": {
+      "caption": "🐪 Midweek magic 🐪 #ink_wisps"
+    },
+    "Thursday": {
+      "caption": "🌟 Thrive on Thursday 🌟 #ink_wisps"
+    },
+    "Friday": {
+      "caption": "🎉 Friday feels 🎉 #ink_wisps"
+    },
+    "Saturday": {
+      "caption": "✨ Slow down this Saturday ✨ #ink_wisps"
+    }
   }
 }
