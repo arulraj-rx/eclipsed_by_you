@@ -13,7 +13,7 @@ class DropboxToInstagramUploader:
     DROPBOX_TOKEN_URL = "https://api.dropbox.com/oauth2/token"
     INSTAGRAM_API_BASE = "https://graph.facebook.com/v18.0"
     INSTAGRAM_REEL_STATUS_RETRIES = 10
-    INSTAGRAM_REEL_STATUS_WAIT_TIME = 3
+    INSTAGRAM_REEL_STATUS_WAIT_TIME = 15
 
     def __init__(self):
         self.script_name = "ink_wisps_post.py"
