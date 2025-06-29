@@ -42,7 +42,7 @@ class SocialMediaPoster:
         self.dropbox_key = os.getenv("DROPBOX_APP_KEY")
         self.dropbox_secret = os.getenv("DROPBOX_APP_SECRET")
         self.dropbox_refresh = os.getenv("DROPBOX_REFRESH_TOKEN")
-        self.dropbox_folder = "/eclipsed.by.you"
+        self.dropbox_folder = "/eclipsed_by_you"
 
         # Constants
         self.poll_interval = 5
