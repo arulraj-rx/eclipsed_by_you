@@ -5,6 +5,7 @@ import json
 import logging
 import requests
 import dropbox
+import threading
 from telegram import Bot
 from datetime import datetime, timedelta
 from pytz import timezone, utc
@@ -141,18 +142,95 @@ class DropboxToInstagramUploader:
             self.send_message(f"❌ Failed to read caption/description from config: {e}", level=logging.ERROR)
             return "✨ #eclipsed_by_you ✨", "✨ #eclipsed_by_you ✨"
 
-    def post_to_instagram(self, dbx, file, caption, description):
+    def parallel_post(self, dbx, file, caption, description):
+        """Post to Instagram and Facebook concurrently, delete only if both succeed."""
         name = file.name
         ext = name.lower()
         media_type = "REELS" if ext.endswith((".mp4", ".mov")) else "IMAGE"
-
-        self.send_message(f"🚀 Starting upload for: {name}")
+        
+        self.send_message(f"🚀 Starting parallel upload for: {name}")
         
         temp_link = dbx.files_get_temporary_link(file.path_lower).link
         file_size = f"{file.size / 1024 / 1024:.2f}MB"
         total_files = len(self.list_dropbox_files(dbx))
 
         self.send_message(f"📸 Type: {media_type} | Size: {file_size} | Remaining: {total_files}")
+
+        # Shared results object with thread lock
+        results = {"instagram": None, "facebook": None, "media_type": media_type}
+        lock = threading.Lock()
+
+        def post_instagram():
+            """Post to Instagram only."""
+            try:
+                success, media_type = self.post_to_instagram_only(dbx, file, caption, temp_link)
+                with lock:
+                    results["instagram"] = success
+                    results["media_type"] = media_type
+                if success:
+                    self.send_message("✅ Instagram upload completed successfully")
+                else:
+                    self.send_message("❌ Instagram upload failed")
+            except Exception as e:
+                self.send_message(f"❌ Instagram upload exception: {e}", level=logging.ERROR)
+                with lock:
+                    results["instagram"] = False
+
+        def post_facebook():
+            """Post to Facebook only."""
+            try:
+                success = self.post_to_facebook_page_only(temp_link, description)
+                with lock:
+                    results["facebook"] = success
+                if success:
+                    self.send_message("✅ Facebook upload completed successfully")
+                else:
+                    self.send_message("❌ Facebook upload failed")
+            except Exception as e:
+                self.send_message(f"❌ Facebook upload exception: {e}", level=logging.ERROR)
+                with lock:
+                    results["facebook"] = False
+
+        # Start both threads
+        t1 = threading.Thread(target=post_instagram)
+        t2 = threading.Thread(target=post_facebook)
+
+        t1.start()
+        t2.start()
+
+        # Wait for both to complete
+        t1.join()
+        t2.join()
+
+        # Check results and handle file deletion
+        instagram_success = results["instagram"]
+        facebook_success = results["facebook"]
+        media_type = results["media_type"]
+
+        if instagram_success and facebook_success:
+            # Both succeeded - delete file
+            try:
+                dbx.files_delete_v2(file.path_lower)
+                self.send_message(f"🗑️ Deleted file after successful posts: {file.name}")
+            except Exception as e:
+                self.send_message(f"⚠️ Failed to delete file {file.name}: {e}", level=logging.WARNING)
+            self.send_message("🎉 Successfully posted to both Instagram and Facebook!")
+            return True, media_type
+        else:
+            # One or both failed - don't delete file
+            if not instagram_success and not facebook_success:
+                self.send_message("❌ Both Instagram and Facebook uploads failed. File not deleted.")
+            elif not instagram_success:
+                self.send_message("❌ Instagram failed, Facebook succeeded. File not deleted.")
+            else:
+                self.send_message("❌ Facebook failed, Instagram succeeded. File not deleted.")
+            return False, media_type
+
+    def post_to_instagram_only(self, dbx, file, caption, temp_link):
+        """Post to Instagram only - isolated logic without Facebook or file deletion."""
+        name = file.name
+        ext = name.lower()
+        media_type = "REELS" if ext.endswith((".mp4", ".mov")) else "IMAGE"
 
         # Get Facebook page access token
         page_token = self.get_page_access_token()
@@ -185,7 +263,7 @@ class DropboxToInstagramUploader:
             self.send_message(f"❌ No media ID returned for: {name}", level=logging.ERROR)
             return False, media_type
 
-        self.send_message(f"✅ Media creation successful! ID: {creation_id}")
+        self.send_message(f"✅ Instagram media creation successful! ID: {creation_id}")
 
         # Process video if it's a reel
         if media_type == "REELS":
@@ -221,16 +299,6 @@ class DropboxToInstagramUploader:
             response_data = pub.json()
             instagram_id = response_data.get("id", "Unknown")
             self.send_message(f"✅ Instagram post published! Media ID: {instagram_id}")
-            
-            # Post to Facebook Page
-            self.send_message("📘 Posting to Facebook Page...")
-            fb_success = self.post_to_facebook_page(temp_link, description, page_token)
-            
-            if fb_success:
-                self.send_message("✅ Successfully posted to both Instagram and Facebook!")
-            else:
-                self.send_message("⚠️ Instagram posted but Facebook failed")
-            
             return True, media_type
         else:
             error_msg = pub.json().get("error", {}).get("message", "Unknown error")
@@ -238,18 +306,17 @@ class DropboxToInstagramUploader:
             self.send_message(f"❌ Instagram publish failed: {name}\nError: {error_msg} | Code: {error_code}", level=logging.ERROR)
             return False, media_type
 
-    def post_to_facebook_page(self, video_url, caption, page_token=None):
-        """Publish the video to the Facebook Page."""
+    def post_to_facebook_page_only(self, video_url, caption):
+        """Post to Facebook Page only - isolated logic."""
         if not self.fb_page_id:
             self.send_message("⚠️ Facebook Page ID not configured, skipping Facebook post", level=logging.WARNING)
             return False
             
-        # Use the page token passed from Instagram upload, or fetch a new one
+        # Get page token
+        page_token = self.get_page_access_token()
         if not page_token:
-            page_token = self.get_page_access_token()
-            if not page_token:
-                self.send_message("❌ Could not retrieve Facebook Page access token.", level=logging.ERROR)
-                return False
+            self.send_message("❌ Could not retrieve Facebook Page access token.", level=logging.ERROR)
+            return False
 
         post_url = f"https://graph.facebook.com/{self.fb_page_id}/videos"
         data = {
@@ -284,45 +351,23 @@ class DropboxToInstagramUploader:
             self.send_message(f"❌ Dropbox authentication failed: {str(e)}", level=logging.ERROR)
             raise
 
-    def process_files_with_retries(self, dbx, caption, description, max_retries=3):
+    def process_files(self, dbx, caption, description):
+        """Process one file - no retry logic, one post per run."""
         files = self.list_dropbox_files(dbx)
         if not files:
             self.send_message("📭 No files found in Dropbox folder.")
             return False
 
-        for attempt in range(max_retries):
-            if attempt >= len(files):
-                self.send_message("❌ No more files to try.")
-                return False
-                
-            file = files[attempt]
-            self.send_message(f"🎯 Attempt {attempt + 1}/{max_retries} — Trying: {file.name}")
-            
-            try:
-                result = self.post_to_instagram(dbx, file, caption, description)
-                if isinstance(result, tuple):
-                    success, media_type = result
-                else:
-                    success = result
-                    media_type = None
-            except Exception as e:
-                self.send_message(f"❌ Exception during post for {file.name}: {e}", level=logging.ERROR)
-                success = False
-                media_type = None
-
-            # Only delete file if upload was successful
-            if success:
-                try:
-                    dbx.files_delete_v2(file.path_lower)
-                    self.send_message(f"🗑️ Deleted successful file: {file.name}")
-                except Exception as e:
-                    self.send_message(f"⚠️ Failed to delete file {file.name}: {e}", level=logging.WARNING)
-                return True  # Exit after successful post
-            else:
-                self.send_message(f"❌ Failed to post {file.name}, will try next file")
-
-        self.send_message("❌ All attempts failed.")
-        return False
+        # Take only the first file
+        file = files[0]
+        self.send_message(f"🎯 Processing file: {file.name}")
+        
+        try:
+            success, media_type = self.parallel_post(dbx, file, caption, description)
+            return success
+        except Exception as e:
+            self.send_message(f"❌ Exception during post for {file.name}: {e}", level=logging.ERROR)
+            return False
 
     def run(self):
         """Main execution method that orchestrates the posting process."""
@@ -341,13 +386,13 @@ class DropboxToInstagramUploader:
             # Authenticate with Dropbox
             dbx = self.authenticate_dropbox()
             
-            # Try posting up to 3 times
-            success = self.process_files_with_retries(dbx, caption, description, max_retries=3)
+            # Process one file only
+            success = self.process_files(dbx, caption, description)
             
             if success:
                 self.send_message("🎉 Publishing completed successfully!")
             else:
-                self.send_message("❌ Publishing failed after all attempts.", level=logging.ERROR)
+                self.send_message("❌ Publishing failed.", level=logging.ERROR)
             
         except Exception as e:
             self.send_message(f"❌ Script crashed: {str(e)}", level=logging.ERROR)
