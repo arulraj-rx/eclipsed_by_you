@@ -1,17 +1,7 @@
 name: eclipsed_by_you Instagram Post
 
 on:
-  schedule:
-    - cron: '0 5 * * *'     # 10:30 AM IST
-    - cron: '0 7 * * *'     # 12:30 PM IST
-    - cron: '0 13 * * *'    # 06:30 PM IST
-    - cron: '0 14 * * *'    # 07:30 PM IST
-    - cron: '30 15 * * *'   # 09:00 PM IST
-    - cron: '30 16 * * *'   # 10:00 PM IST
-  workflow_dispatch:        # allows manual trigger via GitHub UI
-
-jobs:
-  post_to_instagram:
+  
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
