@@ -355,47 +355,7 @@ class DropboxToInstagramUploader:
             self.send_message(f"❌ Instagram publish failed: {name}\n📸 Error: {error_msg}\n📸 Code: {error_code}\n📸 Status: {pub.status_code}", level=logging.ERROR)
             return False, media_type, instagram_success, facebook_success
 
-    def crosspost_instagram_to_facebook(self, instagram_media_id, caption, page_token):
-        """Crosspost Instagram video to Facebook Page instead of re-uploading."""
-        try:
-            self.send_message("🔄 Attempting to crosspost Instagram video to Facebook...", level=logging.INFO)
-            
-            # Use the crossposting endpoint
-            url = f"https://graph.facebook.com/{self.fb_page_id}/feed"
-            data = {
-                "access_token": page_token,
-                "message": caption,
-                "attached_media": json.dumps([{"media_fbid": instagram_media_id}])
-            }
-            
-            self.log_console_only(f"📡 Crosspost URL: {url}", level=logging.INFO)
-            self.log_console_only(f"📸 Instagram Media ID: {instagram_media_id}", level=logging.INFO)
-            
-            start_time = time.time()
-            res = requests.post(url, data=data)
-            request_time = time.time() - start_time
-            
-            self.log_console_only(f"⏱️ Crosspost request completed in {request_time:.2f} seconds", level=logging.INFO)
-            self.log_console_only(f"📊 Crosspost response status: {res.status_code}", level=logging.INFO)
-            
-            if res.status_code == 200:
-                response_data = res.json()
-                post_id = response_data.get("id", "Unknown")
-                self.send_message(f"✅ Instagram video crossposted to Facebook successfully!\n📘 Post ID: {post_id}\n📘 Page ID: {self.fb_page_id}")
-                
-                # Verify the crosspost is live
-                self.verify_facebook_post_by_video_id(post_id, page_token)
-                return True
-            else:
-                error_msg = res.json().get("error", {}).get("message", "Unknown error")
-                error_code = res.json().get("error", {}).get("code", "N/A")
-                self.log_console_only(f"❌ Crosspost failed: {error_msg} (Code: {error_code})", level=logging.INFO)
-                return False
-                
-        except Exception as e:
-            self.log_console_only(f"❌ Exception during crosspost: {e}", level=logging.INFO)
-            return False
-
+    
     def post_to_facebook_page(self, video_url, caption, page_token=None, instagram_media_id=None):
         """Publish the Reel video also to the Facebook Page."""
         if not self.fb_page_id:
@@ -416,14 +376,9 @@ class DropboxToInstagramUploader:
 
         # Try crossposting first if we have Instagram media ID
         if instagram_media_id:
-            self.send_message("🔄 Attempting crosspost from Instagram to Facebook...", level=logging.INFO)
-            if self.crosspost_instagram_to_facebook(instagram_media_id, caption, page_token):
-                return True
-            else:
-                self.send_message("⚠️ Crosspost failed, falling back to direct upload...", level=logging.WARNING)
-
+           self.send_message("🔄 Using direct video upload to Facebook...", level=logging.INFO)
         # Fallback to direct video upload
-        self.send_message("🔄 Using direct video upload to Facebook...", level=logging.INFO)
+        
 
         post_url = f"https://graph.facebook.com/{self.fb_page_id}/videos"
         data = {
