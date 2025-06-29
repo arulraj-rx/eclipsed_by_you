@@ -75,37 +75,34 @@ class DropboxToInstagramUploader:
             self.logger.info(full_msg)
 
     def send_token_expiry_info(self):
+        """Get token expiry info using lightweight /me endpoint (no app secret required)."""
         try:
-            debug_url = f"https://graph.facebook.com/debug_token"
-            params = {
-                "input_token": self.meta_token,
-                "access_token": self.meta_token  # Use the same token for debugging
-            }
-            res = self.session.get(debug_url, params=params)
-            data = res.json().get("data", {})
-            exp_timestamp = data.get("expires_at")
-
-            if not exp_timestamp:
-                self.send_message("⚠️ Could not retrieve token expiry info", level=logging.WARNING)
-                return
-
-            expiry_dt = datetime.fromtimestamp(exp_timestamp, tz=self.ist)
-            now = datetime.now(self.ist)
-            time_left = expiry_dt - now
-
-            days = time_left.days
-            hours, remainder = divmod(time_left.seconds, 3600)
-            minutes = remainder // 60
-
-            message = (
-                f"🔐 Meta Token Expiry Info:\n"
-                f"📅 Expires on: {expiry_dt.strftime('%Y-%m-%d %H:%M:%S %Z')}\n"
-                f"⏳ Time left: {days} days, {hours} hours, {minutes} minutes"
-            )
-            self.send_message(message, level=logging.INFO)
-
+            url = f"https://graph.facebook.com/v18.0/me?fields=token_expiration_date&access_token={self.meta_token}"
+            res = self.session.get(url)
+            
+            if res.status_code == 200:
+                data = res.json()
+                expiry = data.get("token_expiration_date")
+                
+                if expiry:
+                    expiry_dt = datetime.strptime(expiry, "%Y-%m-%dT%H:%M:%S%z")
+                    remaining = expiry_dt - datetime.now(expiry_dt.tzinfo)
+                    days = remaining.days
+                    hours = int(remaining.total_seconds() // 3600)
+                    
+                    message = (
+                        f"🔐 Meta Token Expiry Info:\n"
+                        f"📅 Expires on: {expiry_dt.strftime('%Y-%m-%d %H:%M:%S %Z')}\n"
+                        f"⏳ Time left: {days} days ({hours} hours)"
+                    )
+                    self.send_message(message, level=logging.INFO)
+                else:
+                    self.send_message("⚠️ Expiry field missing in response", level=logging.WARNING)
+            else:
+                self.send_message(f"⚠️ Token expiry check failed: {res.status_code} - {res.text}", level=logging.WARNING)
+                
         except Exception as e:
-            self.send_message(f"❌ Failed to get token expiry info: {e}", level=logging.ERROR)
+            self.send_message(f"⚠️ Could not retrieve token expiry info: {str(e)}", level=logging.WARNING)
 
     def get_page_access_token(self):
         """Fetch short-lived Page Access Token from long-lived user token."""
@@ -460,6 +457,15 @@ class DropboxToInstagramUploader:
             self.send_message(f"❌ Dropbox authentication failed: {str(e)}", level=logging.ERROR)
             raise
 
+    def get_remaining_files_count(self, dbx):
+        """Get the count of remaining files in Dropbox folder."""
+        try:
+            files = self.list_dropbox_files(dbx)
+            return len(files)
+        except Exception as e:
+            self.log_console_only(f"⚠️ Could not count remaining files: {e}", level=logging.WARNING)
+            return 0
+
     def process_files_with_retries(self, dbx, caption, description, max_retries=1):
         files = self.list_dropbox_files(dbx)
         if not files:
@@ -503,6 +509,9 @@ class DropboxToInstagramUploader:
         except Exception as e:
             self.log_console_only(f"⚠️ Failed to delete file {file.name}: {e}", level=logging.WARNING)
 
+        # Get remaining files count
+        remaining_files = self.get_remaining_files_count(dbx)
+
         # Report results for each platform separately
         if instagram_success:
             if media_type == "REELS":
@@ -520,11 +529,11 @@ class DropboxToInstagramUploader:
             else:
                 self.send_message("❌ Facebook Page post failed", level=logging.ERROR)
         
-        # Final summary
+        # Final summary with remaining files count
         if media_type == "REELS":
-            self.log_console_only(f"📊 Final Status: Instagram {'✅' if instagram_success else '❌'} | Facebook {'✅' if facebook_success else '❌'}", level=logging.INFO)
+            self.log_console_only(f"📊 Final Status: Instagram {'✅' if instagram_success else '❌'} | Facebook {'✅' if facebook_success else '❌'} | 📦 Remaining files: {remaining_files}", level=logging.INFO)
         else:
-            self.log_console_only(f"📊 Final Status: Instagram {'✅' if instagram_success else '❌'} | Facebook N/A (image)", level=logging.INFO)
+            self.log_console_only(f"📊 Final Status: Instagram {'✅' if instagram_success else '❌'} | Facebook N/A (image) | 📦 Remaining files: {remaining_files}", level=logging.INFO)
         
         # Return overall success (Instagram success is primary)
         return instagram_success
