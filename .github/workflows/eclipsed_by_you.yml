@@ -1,32 +1,45 @@
-name: eclipsed_by_you Instagram Post
+name: 📤 Auto Post to Instagram & Facebook
 
 on:
-  
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+  workflow_dispatch:  # Manual run button
+  schedule:
+    - cron: "30 5 * * *"  # Runs daily at 5:30 AM UTC (11:00 AM IST)
 
-    env:
-      IG_ECLIPSED_BY_YOU_TOKEN: ${{ secrets.IG_ECLIPSED_BY_YOU_TOKEN }}
-      IG_ECLIPSED_BY_YOU_ID: ${{ secrets.IG_ECLIPSED_BY_YOU_ID }}
-      DROPBOX_ECLIPSED_BY_YOU_APP_KEY: ${{ secrets.DROPBOX_ECLIPSED_BY_YOU_APP_KEY }}
-      DROPBOX_ECLIPSED_BY_YOU_APP_SECRET: ${{ secrets.DROPBOX_ECLIPSED_BY_YOU_APP_SECRET }}
-      DROPBOX_ECLIPSED_BY_YOU_REFRESH: ${{ secrets.DROPBOX_ECLIPSED_BY_YOU_REFRESH }}
-      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+jobs:
+  autopost:
+    runs-on: ubuntu-latest
+    name: Run eclipsed_by_you_post
 
     steps:
-      - name: 📥 Checkout Repository
-        uses: actions/checkout@v3
+    - name: 📁 Checkout repository
+      uses: actions/checkout@v3
 
-      - name: 🐍 Set Up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
+    - name: 🐍 Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
 
-      - name: 📦 Install Dependencies
-        run: |
-          pip install --upgrade pip
-          pip install dropbox requests python-telegram-bot==13.15 pytz pynacl
+    - name: 📦 Install dependencies
+      run: |
+        pip install requests python-telegram-bot dropbox pytz
 
-      - name: 🚀 Run Instagram Uploader
-        run: python eclipsed_by_you_post.py
+    - name: 🔐 eclipsed_by_you_post
+      env:
+        # Meta/Instagram/Facebook
+        META_TOKEN: ${{ secrets.META_TOKEN }}
+        IG_ID: ${{ secrets.IG_ID }}
+        FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
+        IG_COLLABORATOR_ID: ${{ secrets.IG_COLLABORATOR_ID }}
+        FB_COLLABORATOR_IDS: ${{ secrets.FB_COLLABORATOR_IDS }}
+        IG_SHARE_TO_FEED: ${{ secrets.IG_SHARE_TO_FEED }}
+
+        # Dropbox
+        DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
+        DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
+        DROPBOX_REFRESH_TOKEN: ${{ secrets.DROPBOX_REFRESH_TOKEN }}
+
+        # Telegram
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+      run: python eclipsed_by_you_post.py
