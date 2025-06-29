@@ -20,7 +20,7 @@ class SocialMediaPoster:
         self.schedule_file = "scheduler/config.json"
         
         # Script identifier for notifications
-        self.script_name = "📱 SocialMediaPoster"
+        self.script_name = "📱 eclipsed_by_you"
         
         # API Version
         self.meta_version = "v18.0"
