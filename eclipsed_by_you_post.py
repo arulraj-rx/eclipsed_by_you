@@ -46,7 +46,7 @@ class SocialMediaPoster:
 
         # Constants
         self.poll_interval = 5
-        self.max_files_to_check = 1  # Changed to 1 file only
+        self.max_files_to_check = 1  # Check up to 3 files for copyright issues
         self.max_retries = 3  # Retry attempts for API calls
 
         # Initialize bot
@@ -295,24 +295,15 @@ class SocialMediaPoster:
             payload = {
                 "access_token": self.meta_token,
                 "caption": caption,
+                "media_type": "REELS" if is_video else "IMAGE",
+                "video_url": link if is_video else None,
+                "image_url": None if is_video else link,
                 "share_to_feed": str(self.ig_share_feed).lower()
             }
             
-            # Fix: Only include one media type and URL
-            if is_video:
-                payload["video_url"] = link
-                payload["media_type"] = "REELS"
-            else:
-                payload["image_url"] = link
-                payload["media_type"] = "IMAGE"
-            
-            # Fix: Temporarily remove collaborators to test
-            # if self.ig_collab:
-            #     self.notify(f"👥 Adding Instagram collaborator: {self.ig_collab}")
-            #     payload["collaborators"] = json.dumps([self.ig_collab])
-
-            # Fix: Log the payload before uploading
-            self.notify(f"📦 Final Instagram payload:\n{json.dumps(payload, indent=2)}")
+            if self.ig_collab:
+                self.notify(f"👥 Adding Instagram collaborator: {self.ig_collab}")
+                payload["collaborators"] = json.dumps([self.ig_collab])
 
             # Upload to Instagram
             self.notify(f"📤 Uploading to Instagram: {file.name}")
@@ -497,44 +488,49 @@ class SocialMediaPoster:
                 self.notify("❌ No media files found in Dropbox folder", error=True)
                 return
 
-            # Process single file
-            file = files[0]  # Take the first file only
-            self.notify(f"📁 Processing file: {file.name}")
-            
-            try:
-                # Step 1: Check copyright and upload to Instagram
-                ig_ok, ig_mid = self.check_copyright_and_upload_instagram(dbx, file, caption)
+            # Process files - try up to 3 files, but publish only ONE
+            for idx, file in enumerate(files, start=1):
+                self.notify(f"📁 Processing file {idx}/{len(files)}: {file.name}")
                 
-                if not ig_ok:
-                    self.notify(f"❌ Instagram copyright check failed for {file.name}", error=True)
+                try:
+                    # Step 1: Check copyright and upload to Instagram
+                    ig_ok, ig_mid = self.check_copyright_and_upload_instagram(dbx, file, caption)
+                    
+                    if not ig_ok:
+                        self.notify(f"❌ Instagram copyright check failed for {file.name}", error=True)
+                        self.delete_file_from_dropbox(dbx, file)
+                        self.notify(f"🔄 Moving to next file...")
+                        continue  # Try next file
+                    
+                    # Step 2: Check copyright and upload to Facebook
+                    fb_ok, fb_mid = self.check_copyright_and_upload_facebook(dbx, file, description)
+                    
+                    if not fb_ok:
+                        self.notify(f"❌ Facebook copyright check failed for {file.name}", error=True)
+                        self.delete_file_from_dropbox(dbx, file)
+                        self.notify(f"🔄 Moving to next file...")
+                        continue  # Try next file
+                    
+                    # Step 3: Both platforms successful - fetch insights and exit
+                    self.notify(f"📊 Fetching insights for {file.name}")
+                    ig_ins = self.fetch_insights(ig_mid, is_ig=True)
+                    fb_ins = self.fetch_insights(fb_mid, is_ig=False)
+                    
+                    self.notify(f"🎉 SUCCESS! Published: {file.name}\n📊 IG metrics: {json.dumps(ig_ins)}\n📊 FB metrics: {json.dumps(fb_ins)}")
+                    
+                    # Delete successful file and exit
                     self.delete_file_from_dropbox(dbx, file)
-                    self.notify("❌ Script failed - Instagram upload unsuccessful")
+                    self.notify("✅ Script completed - ONE post successfully published to both platforms")
                     return
-                
-                # Step 2: Check copyright and upload to Facebook
-                fb_ok, fb_mid = self.check_copyright_and_upload_facebook(dbx, file, description)
-                
-                if not fb_ok:
-                    self.notify(f"❌ Facebook copyright check failed for {file.name}", error=True)
-                    self.delete_file_from_dropbox(dbx, file)
-                    self.notify("❌ Script failed - Facebook upload unsuccessful")
-                    return
-                
-                # Step 3: Both platforms successful - fetch insights and exit
-                self.notify(f"📊 Fetching insights for {file.name}")
-                ig_ins = self.fetch_insights(ig_mid, is_ig=True)
-                fb_ins = self.fetch_insights(fb_mid, is_ig=False)
-                
-                self.notify(f"🎉 SUCCESS! Published: {file.name}\n📊 IG metrics: {json.dumps(ig_ins)}\n📊 FB metrics: {json.dumps(fb_ins)}")
-                
-                # Delete successful file and exit
-                self.delete_file_from_dropbox(dbx, file)
-                self.notify("✅ Script completed - ONE post successfully published to both platforms")
                         
-            except Exception as e:
-                self.notify(f"❌ Upload error on {file.name}: {e}", error=True)
-                self.delete_file_from_dropbox(dbx, file)
-                self.notify("❌ Script failed due to upload error")
+                except Exception as e:
+                    self.notify(f"❌ Upload error on {file.name}: {e}", error=True)
+                    self.delete_file_from_dropbox(dbx, file)
+                    self.notify(f"🔄 Moving to next file...")
+                    continue  # Try next file
+            
+            # If we get here, all files failed
+            self.notify("❌ All files checked were copyrighted/blocked - no post published", error=True)
 
         except Exception as e:
             self.notify(f"❌ Script execution failed: {e}", error=True)
