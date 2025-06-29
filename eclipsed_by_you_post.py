@@ -18,7 +18,7 @@ class DropboxToInstagramUploader:
     def __init__(self):
         self.script_name = "ink_wisps_post.py"
         self.ist = timezone('Asia/Kolkata')
-        self.account_key = "ink_wisps"
+        self.account_key = "eclipsed_by_you"
         self.schedule_file = "scheduler/config.json"
 
         # Logging
@@ -98,18 +98,19 @@ class DropboxToInstagramUploader:
             # Get today's caption from config
             today = datetime.now(self.ist).strftime("%A")
             day_config = config.get(self.account_key, {}).get(today, {})
-            caption = day_config.get("caption", "")
+            
+            caption = day_config.get("caption", "✨ #eclipsed_by_you ✨")
+            description = day_config.get("description", caption)  # Fallback to caption if missing
             
             if not caption:
                 self.send_message("⚠️ No caption found in config for today", level=logging.WARNING)
-                return "✨ #ink_wisps ✨"  # Default caption if none found
             
-            return caption
+            return caption, description
         except Exception as e:
-            self.send_message(f"❌ Failed to read caption from config: {e}", level=logging.ERROR)
-            return "✨ #ink_wisps ✨"  # Default caption if config read fails
+            self.send_message(f"❌ Failed to read caption/description from config: {e}", level=logging.ERROR)
+            return "✨ #eclipsed_by_you ✨", "✨ #eclipsed_by_you ✨"
 
-    def post_to_instagram(self, dbx, file, caption):
+    def post_to_instagram(self, dbx, file, caption, description):
         name = file.name
         ext = name.lower()
         media_type = "REELS" if ext.endswith((".mp4", ".mov")) else "IMAGE"
@@ -162,7 +163,7 @@ class DropboxToInstagramUploader:
             
             # Also post to Facebook Page if it's a REEL
             if media_type == "REELS":
-                self.post_to_facebook_page(temp_link, caption)
+                self.post_to_facebook_page(temp_link, description)
             
             # Removed file deletion from here
             return True, media_type
@@ -176,6 +177,8 @@ class DropboxToInstagramUploader:
             self.send_message("⚠️ Facebook Page ID not configured, skipping Facebook post", level=logging.WARNING)
             return False
             
+        self.send_message("📘 Starting Facebook Page upload...", level=logging.INFO)
+        
         post_url = f"https://graph.facebook.com/{self.fb_page_id}/videos"
         data = {
             "access_token": self.meta_token,
@@ -184,15 +187,21 @@ class DropboxToInstagramUploader:
         }
         
         try:
+            self.send_message("🔄 Sending request to Facebook API...", level=logging.INFO)
             res = requests.post(post_url, data=data)
+            
             if res.status_code == 200:
-                self.send_message("✅ Also posted to Facebook Page as a video.")
+                response_data = res.json()
+                video_id = response_data.get("id", "Unknown")
+                self.send_message(f"✅ Facebook Page upload successful!\n📘 Video ID: {video_id}\n📘 Page ID: {self.fb_page_id}")
                 return True
             else:
-                self.send_message(f"⚠️ Facebook post failed:\n{res.text}", level=logging.WARNING)
+                error_msg = res.json().get("error", {}).get("message", "Unknown error")
+                error_code = res.json().get("error", {}).get("code", "N/A")
+                self.send_message(f"❌ Facebook Page upload failed:\n📘 Error: {error_msg}\n📘 Code: {error_code}\n📘 Status: {res.status_code}", level=logging.ERROR)
                 return False
         except Exception as e:
-            self.send_message(f"⚠️ Facebook post exception: {str(e)}", level=logging.WARNING)
+            self.send_message(f"❌ Facebook Page upload exception:\n📘 Error: {str(e)}", level=logging.ERROR)
             return False
 
     def authenticate_dropbox(self):
@@ -204,7 +213,7 @@ class DropboxToInstagramUploader:
             self.send_message(f"❌ Dropbox authentication failed: {str(e)}", level=logging.ERROR)
             raise
 
-    def process_files_with_retries(self, dbx, caption, max_retries=3):
+    def process_files_with_retries(self, dbx, caption, description, max_retries=3):
         files = self.list_dropbox_files(dbx)
         if not files:
             self.send_message("📭 No files found in Dropbox folder.", level=logging.INFO)
@@ -215,7 +224,7 @@ class DropboxToInstagramUploader:
             attempts += 1
             self.send_message(f"🎯 Attempt {attempts}/{max_retries} — Trying: {file.name}", level=logging.INFO)
             try:
-                result = self.post_to_instagram(dbx, file, caption)
+                result = self.post_to_instagram(dbx, file, caption, description)
                 if isinstance(result, tuple):
                     success, media_type = result
                 else:
@@ -251,13 +260,13 @@ class DropboxToInstagramUploader:
         
         try:
             # Get caption from config
-            caption = self.get_caption_from_config()
+            caption, description = self.get_caption_from_config()
             
             # Authenticate with Dropbox
             dbx = self.authenticate_dropbox()
             
             # Try posting up to 3 times
-            self.process_files_with_retries(dbx, caption, max_retries=3)
+            self.process_files_with_retries(dbx, caption, description, max_retries=3)
             
         except Exception as e:
             self.send_message(f"❌ Script crashed:\n{str(e)}", level=logging.ERROR)
