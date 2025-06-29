@@ -32,7 +32,7 @@ class SocialMediaPoster:
         self.ig_collab = os.getenv("IG_COLLABORATOR_ID", "").strip() or None
         self.fb_collabs = [c.strip() for c in os.getenv("FB_COLLABORATOR_IDS", "").split(",") if c.strip()]
         # Hardcoded share to feed - not in environment variables
-        self.ig_share_feed = True  # Set to True if you want to share to feed
+        self.ig_share_feed = False  # Set to True if you want to share to feed
 
         # Telegram configuration
         self.telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -46,7 +46,7 @@ class SocialMediaPoster:
 
         # Constants
         self.poll_interval = 5
-        self.max_files_to_check = 1  # Check up to 3 files for copyright issues
+        self.max_files_to_check = 3  # Check up to 3 files for copyright issues
         self.max_retries = 3  # Retry attempts for API calls
 
         # Initialize bot
@@ -295,15 +295,24 @@ class SocialMediaPoster:
             payload = {
                 "access_token": self.meta_token,
                 "caption": caption,
-                "media_type": "REELS" if is_video else "IMAGE",
-                "video_url": link if is_video else None,
-                "image_url": None if is_video else link,
                 "share_to_feed": str(self.ig_share_feed).lower()
             }
             
-            if self.ig_collab:
-                self.notify(f"👥 Adding Instagram collaborator: {self.ig_collab}")
-                payload["collaborators"] = json.dumps([self.ig_collab])
+            # Fix: Only include one media type and URL (no None values)
+            if is_video:
+                payload["video_url"] = link
+                payload["media_type"] = "REELS"
+            else:
+                payload["image_url"] = link
+                payload["media_type"] = "IMAGE"
+            
+            # Fix: Temporarily remove collaborators to test
+            # if self.ig_collab:
+            #     self.notify(f"👥 Adding Instagram collaborator: {self.ig_collab}")
+            #     payload["collaborators"] = json.dumps([self.ig_collab])
+
+            # Fix: Log the payload before uploading
+            self.notify(f"📦 Final Instagram payload:\n{json.dumps(payload, indent=2)}")
 
             # Upload to Instagram
             self.notify(f"📤 Uploading to Instagram: {file.name}")
@@ -354,16 +363,22 @@ class SocialMediaPoster:
             self.notify(f"🔗 Getting Dropbox temporary link for: {file.name}")
             link = dbx.files_get_temporary_link(file.path_lower).link
             
+            # Fix: Use caption as description for Facebook
+            payload = {
+                "access_token": self.meta_token,
+                "video_url": link,
+                "description": caption
+            }
+            
+            # Fix: Log the payload before uploading
+            self.notify(f"📦 Final Facebook payload:\n{json.dumps(payload, indent=2)}")
+            
             # Upload to Facebook
             self.notify(f"📤 Uploading to Facebook: {file.name}")
             r = self.retry_api_call(
                 requests.post, 
                 f"https://graph.facebook.com/{self.meta_version}/{self.fb_page_id}/video_reels", 
-                data={
-                    "access_token": self.meta_token,
-                    "video_url": link,
-                    "description": caption
-                }
+                data=payload
             )
             
             if not r or r.status_code != 200:
