@@ -49,112 +49,95 @@ class DropboxToInstagramUploader:
             self.telegram_bot = None
 
         self.start_time = time.time()
+        
+        # Message buffering for consolidated Telegram messages
+        self.message_buffer = []
+        self.last_send_time = time.time()
+        self.buffer_send_interval = 30  # Send buffer every 30 seconds or when full
 
-    def send_message(self, msg, level=logging.INFO):
+    def send_message(self, msg, level=logging.INFO, force_send=False):
         prefix = f"[{self.script_name}]\n"
         full_msg = prefix + msg
-        try:
-            if self.telegram_bot and self.telegram_chat_id:
-                self.telegram_bot.send_message(chat_id=self.telegram_chat_id, text=full_msg) 
-            # Also log the message to console with the specified level
-            if level == logging.ERROR:
-                self.logger.error(full_msg)
+        
+        # Always log to console
+        if level == logging.ERROR:
+            self.logger.error(full_msg)
+        else:
+            self.logger.info(full_msg)
+        
+        # Add to buffer for Telegram (unless it's an error that should be sent immediately)
+        if self.telegram_bot and self.telegram_chat_id:
+            if level == logging.ERROR or force_send:
+                # Send errors immediately
+                try:
+                    self.telegram_bot.send_message(chat_id=self.telegram_chat_id, text=full_msg)
+                except Exception as e:
+                    self.logger.error(f"Telegram send error for message '{full_msg}': {e}")
             else:
-                self.logger.info(full_msg)
+                # Add to buffer for consolidated sending
+                self.message_buffer.append(msg)
+                
+                # Send buffer if it's been long enough or buffer is getting full
+                current_time = time.time()
+                if (current_time - self.last_send_time > self.buffer_send_interval or 
+                    len(self.message_buffer) >= 10 or 
+                    force_send):
+                    self.send_buffered_messages()
+
+    def send_buffered_messages(self):
+        """Send all buffered messages as a single consolidated message."""
+        if not self.message_buffer or not self.telegram_bot or not self.telegram_chat_id:
+            return
+            
+        try:
+            # Create consolidated message
+            consolidated_msg = f"[{self.script_name}]\n📋 Progress Update:\n\n"
+            consolidated_msg += "\n".join(self.message_buffer)
+            
+            # Send the consolidated message
+            self.telegram_bot.send_message(chat_id=self.telegram_chat_id, text=consolidated_msg)
+            
+            # Clear buffer and update last send time
+            self.message_buffer = []
+            self.last_send_time = time.time()
+            
         except Exception as e:
-            self.logger.error(f"Telegram send error for message '{full_msg}': {e}")
+            self.logger.error(f"Telegram send error for consolidated message: {e}")
+
+    def send_final_summary(self):
+        """Send a final summary message with all remaining buffered messages."""
+        if self.message_buffer:
+            self.send_buffered_messages()
 
     def send_token_expiry_info(self):
         try:
-            self.send_message("🔐 Checking Meta token expiry info...", level=logging.INFO)
-            
-            # Use the user token (meta_token) from GitHub Secrets to check its own expiry
             debug_url = f"https://graph.facebook.com/debug_token"
-            
-            # Method 1: Try using the user token itself for debugging
             params = {
                 "input_token": self.meta_token,
-                "access_token": self.meta_token
+                "access_token": self.meta_token  # Use the same token for debugging
             }
-            
-            self.send_message(f"📡 Debug URL: {debug_url}", level=logging.INFO)
-            self.send_message(f"🔑 Using user token from GitHub Secrets: {self.meta_token[:20] if self.meta_token else 'None'}...", level=logging.INFO)
-            
-            start_time = time.time()
             res = requests.get(debug_url, params=params)
-            request_time = time.time() - start_time
-            
-            self.send_message(f"⏱️ Token debug request completed in {request_time:.2f} seconds", level=logging.INFO)
-            self.send_message(f"📊 Debug response status: {res.status_code}", level=logging.INFO)
-            
-            if res.status_code == 200:
-                data = res.json().get("data", {})
-                exp_timestamp = data.get("expires_at")
-                is_valid = data.get("is_valid", False)
-                app_id = data.get("app_id", "Unknown")
-                
-                self.send_message(f"📄 Token validity: {is_valid}", level=logging.INFO)
-                self.send_message(f"📄 App ID: {app_id}", level=logging.INFO)
-                
-                if exp_timestamp:
-                    expiry_dt = datetime.fromtimestamp(exp_timestamp, tz=self.ist)
-                    now = datetime.now(self.ist)
-                    time_left = expiry_dt - now
+            data = res.json().get("data", {})
+            exp_timestamp = data.get("expires_at")
 
-                    days = time_left.days
-                    hours, remainder = divmod(time_left.seconds, 3600)
-                    minutes = remainder // 60
+            if not exp_timestamp:
+                self.send_message("⚠️ Could not retrieve token expiry info", level=logging.WARNING)
+                return
 
-                    message = (
-                        f"🔐 Meta Token Expiry Info:\n"
-                        f"📅 Expires on: {expiry_dt.strftime('%Y-%m-%d %H:%M:%S %Z')}\n"
-                        f"⏳ Time left: {days} days, {hours} hours, {minutes} minutes"
-                    )
-                    self.send_message(message, level=logging.INFO)
-                else:
-                    self.send_message("⚠️ Token has no expiry (long-lived token)", level=logging.INFO)
-            else:
-                # Method 2: Try using app access token as fallback
-                self.send_message("🔄 First method failed, trying with app access token...", level=logging.INFO)
-                self.send_message(f"📄 Error response: {res.text}", level=logging.INFO)
-                
-                app_access_token = f"{self.dropbox_key}|{self.dropbox_secret}"
-                
-                params = {
-                    "input_token": self.meta_token,
-                    "access_token": app_access_token
-                }
-                
-                self.send_message(f"🔑 Using app access token: {app_access_token[:20] if app_access_token else 'None'}...", level=logging.INFO)
-                
-                res = requests.get(debug_url, params=params)
-                if res.status_code == 200:
-                    data = res.json().get("data", {})
-                    exp_timestamp = data.get("expires_at")
-                    is_valid = data.get("is_valid", False)
-                    
-                    self.send_message(f"📄 Token validity (via app token): {is_valid}", level=logging.INFO)
-                    
-                    if exp_timestamp:
-                        expiry_dt = datetime.fromtimestamp(exp_timestamp, tz=self.ist)
-                        now = datetime.now(self.ist)
-                        time_left = expiry_dt - now
+            expiry_dt = datetime.fromtimestamp(exp_timestamp, tz=self.ist)
+            now = datetime.now(self.ist)
+            time_left = expiry_dt - now
 
-                        days = time_left.days
-                        hours, remainder = divmod(time_left.seconds, 3600)
-                        minutes = remainder // 60
+            days = time_left.days
+            hours, remainder = divmod(time_left.seconds, 3600)
+            minutes = remainder // 60
 
-                        message = (
-                            f"🔐 Meta Token Expiry Info (via app token):\n"
-                            f"📅 Expires on: {expiry_dt.strftime('%Y-%m-%d %H:%M:%S %Z')}\n"
-                            f"⏳ Time left: {days} days, {hours} hours, {minutes} minutes"
-                        )
-                        self.send_message(message, level=logging.INFO)
-                    else:
-                        self.send_message("⚠️ Token has no expiry (long-lived token)", level=logging.INFO)
-                else:
-                    self.send_message(f"❌ Both methods failed to get token expiry info", level=logging.ERROR)
-                    self.send_message(f"📄 App token error response: {res.text}", level=logging.ERROR)
+            message = (
+                f"🔐 Meta Token Expiry Info:\n"
+                f"📅 Expires on: {expiry_dt.strftime('%Y-%m-%d %H:%M:%S %Z')}\n"
+                f"⏳ Time left: {days} days, {hours} hours, {minutes} minutes"
+            )
+            self.send_message(message, level=logging.INFO)
 
         except Exception as e:
             self.send_message(f"❌ Failed to get token expiry info: {e}", level=logging.ERROR)
