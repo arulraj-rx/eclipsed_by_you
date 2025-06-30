@@ -99,13 +99,22 @@ class DropboxToInstagramUploader:
                 # Always show token expiry if it exists
                 if expires_at and expires_at > 0:
                     expiry_dt = datetime.utcfromtimestamp(expires_at)
-                    delta = expiry_dt - datetime.utcnow()
-                    months = delta.days // 30
-                    days = delta.days % 30
+                    now_utc = datetime.utcnow()
+                    delta = expiry_dt - now_utc
+                    
+                    # More accurate month/day calculation
+                    total_days = delta.days
+                    months = total_days // 30
+                    days = total_days % 30
+                    
                     if months > 0:
                         time_left = f"{months} months, {days} days"
                     else:
                         time_left = f"{days} days"
+                    
+                    # Add debug info (console only)
+                    self.log_console_only(f"🔍 Token expiry debug: expiry_timestamp={expires_at}, now_timestamp={now_utc.timestamp()}, delta_days={total_days}", level=logging.INFO)
+                    
                     message_parts.append(f"⏳ Token expires on {expiry_dt.strftime('%Y-%m-%d %H:%M:%S')} UTC ({time_left} left)")
                 else:
                     message_parts.append("🔐 Token does not expire (long-lived token)")
@@ -113,13 +122,22 @@ class DropboxToInstagramUploader:
                 # Show data access expiry if it exists
                 if data_access_expires_at and data_access_expires_at > 0:
                     daa_expiry_dt = datetime.utcfromtimestamp(data_access_expires_at)
-                    daa_delta = daa_expiry_dt - datetime.utcnow()
-                    daa_months = daa_delta.days // 30
-                    daa_days = daa_delta.days % 30
+                    now_utc = datetime.utcnow()
+                    daa_delta = daa_expiry_dt - now_utc
+                    
+                    # More accurate month/day calculation
+                    daa_total_days = daa_delta.days
+                    daa_months = daa_total_days // 30
+                    daa_days = daa_total_days % 30
+                    
                     if daa_months > 0:
                         daa_time_left = f"{daa_months} months, {daa_days} days"
                     else:
                         daa_time_left = f"{daa_days} days"
+                    
+                    # Add debug info (console only)
+                    self.log_console_only(f"🔍 Data access expiry debug: expiry_timestamp={data_access_expires_at}, now_timestamp={now_utc.timestamp()}, delta_days={daa_total_days}", level=logging.INFO)
+                    
                     message_parts.append(f"📅 Data access expires on {daa_expiry_dt.strftime('%Y-%m-%d %H:%M:%S')} UTC ({daa_time_left} left)")
                 
                 self.send_message("\n".join(message_parts), level=logging.INFO)
@@ -378,8 +396,10 @@ class DropboxToInstagramUploader:
                 time.sleep(10)
                 
                 # Try to verify the post, but don't let verification failure affect success
+                instagram_verification_success = False
+                instagram_permalink = None
                 try:
-                    self.verify_instagram_post_by_media_id(instagram_id, page_token)
+                    instagram_verification_success, instagram_permalink = self.verify_instagram_post_with_fallback(instagram_id, page_token)
                 except Exception as e:
                     self.log_console_only(f"⚠️ Verification failed but post was published successfully: {e}", level=logging.WARNING)
             
@@ -389,6 +409,37 @@ class DropboxToInstagramUploader:
                 facebook_success = self.post_to_facebook_page(temp_link, description, page_token, instagram_id)
             else:
                 facebook_success = True  # No Facebook post needed for images
+            
+            # After Facebook processing, retry Instagram verification if it wasn't successful initially
+            if not instagram_verification_success and instagram_success:
+                self.log_console_only("🔄 Retrying Instagram verification after Facebook processing...", level=logging.INFO)
+                try:
+                    # Wait a bit more for Instagram to finish processing
+                    self.log_console_only("⏳ Waiting additional 15 seconds for Instagram processing...", level=logging.INFO)
+                    time.sleep(15)
+                    
+                    # Retry verification with more attempts
+                    instagram_verification_success, instagram_permalink = self.verify_instagram_post_with_fallback(instagram_id, page_token, max_attempts=8)
+                    
+                    if instagram_verification_success and instagram_permalink:
+                        self.send_message(f"✅ Instagram post fully verified after retry!\n🔗 {instagram_permalink}", level=logging.INFO)
+                    elif instagram_verification_success:
+                        self.send_message("✅ Instagram post verified after retry (permalink still processing)", level=logging.INFO)
+                    else:
+                        self.log_console_only("⚠️ Instagram verification still pending after retry", level=logging.WARNING)
+                        
+                except Exception as e:
+                    self.log_console_only(f"⚠️ Retry verification failed: {e}", level=logging.WARNING)
+            
+            # Final Instagram verification with fallback to profile
+            if instagram_success and not instagram_verification_success:
+                self.log_console_only("🔁 Final Instagram verification with profile fallback...", level=logging.INFO)
+                try:
+                    # Get Instagram username from IG_ID (you may need to adjust this based on your setup)
+                    ig_username = "eclipsed_by_you"  # Default fallback username
+                    self.retry_instagram_verification(instagram_id, ig_username)
+                except Exception as e:
+                    self.log_console_only(f"⚠️ Final Instagram verification failed: {e}", level=logging.WARNING)
             
             # Return success status for both platforms
             return True, media_type, instagram_success, facebook_success
@@ -990,10 +1041,10 @@ class DropboxToInstagramUploader:
             self.send_message(f"❌ Exception verifying token type: {e}", level=logging.ERROR)
             return False
 
-    def verify_instagram_post_by_media_id(self, media_id, page_token):
-        """Verify Instagram post is live by polling the published media_id."""
+    def verify_instagram_post_with_fallback(self, media_id, page_token, max_attempts=5):
+        """Enhanced Instagram verification with fallback strategy."""
         try:
-            self.log_console_only("🔍 Verifying Instagram post is live...", level=logging.INFO)
+            self.log_console_only("🔍 Verifying Instagram post with fallback strategy...", level=logging.INFO)
             
             # Poll the media_id to get post details - try to get permalink_url when available
             url = f"{self.INSTAGRAM_API_BASE}/{media_id}"
@@ -1004,9 +1055,9 @@ class DropboxToInstagramUploader:
             
             self.log_console_only(f"📡 Verification URL: {url}", level=logging.INFO)
             
-            # Try up to 5 times with 8-second intervals (increased retries and wait time)
-            for attempt in range(1, 6):
-                self.log_console_only(f"🔄 Verification attempt {attempt}/5", level=logging.INFO)
+            # Try up to max_attempts times with 8-second intervals
+            for attempt in range(1, max_attempts + 1):
+                self.log_console_only(f"🔄 Verification attempt {attempt}/{max_attempts}", level=logging.INFO)
                 
                 res = self.session.get(url, params=params)
                 if res.status_code == 200:
@@ -1023,7 +1074,7 @@ class DropboxToInstagramUploader:
                         self.log_console_only(f"🔗 Permalink: {permalink}", level=logging.INFO)
                         self.log_console_only(f"📂 Media Type: {media_type}", level=logging.INFO)
                         self.log_console_only(f"⏰ Created: {created_time}", level=logging.INFO)
-                        return True
+                        return True, permalink
                     else:
                         # Post exists but permalink not yet available
                         self.log_console_only("⏳ Post exists but permalink not yet available", level=logging.INFO)
@@ -1035,7 +1086,7 @@ class DropboxToInstagramUploader:
                     
                     # Check if it's a ShadowIGMedia error
                     if "ShadowIGMedia" in error_msg or "nonexisting field" in error_msg.lower():
-                        self.send_message(f"⏳ Post is still being finalized (ShadowIGMedia) - attempt {attempt}/5", level=logging.INFO)
+                        self.send_message(f"⏳ IG metadata still processing... (attempt {attempt}/{max_attempts})", level=logging.INFO)
                         self.log_console_only("✅ Post exists but metadata isn't ready yet", level=logging.INFO)
                     else:
                         self.log_console_only(f"⚠️ Unknown error: {error_msg}", level=logging.INFO)
@@ -1043,7 +1094,7 @@ class DropboxToInstagramUploader:
                     self.log_console_only(f"❌ Verification failed (attempt {attempt}): {res.status_code} - {res.text}", level=logging.INFO)
                 
                 # Wait before next attempt (except on last attempt)
-                if attempt < 5:
+                if attempt < max_attempts:
                     wait_time = 8  # 8 seconds as suggested
                     self.log_console_only(f"⏳ Waiting {wait_time} seconds before next attempt...", level=logging.INFO)
                     time.sleep(wait_time)
@@ -1051,11 +1102,15 @@ class DropboxToInstagramUploader:
             # If we get here, the post exists but may not be fully live yet
             self.log_console_only("⚠️ Post was published but may still be processing (ShadowIGMedia state)", level=logging.WARNING)
             self.send_message("✅ Instagram post published successfully (may still be processing)", level=logging.INFO)
-            return True  # Consider it successful since it was published
+            return True, None  # Consider it successful since it was published, but no permalink yet
             
         except Exception as e:
             self.log_console_only(f"❌ Exception during Instagram verification: {e}", level=logging.INFO)
-            return False
+            return False, None
+
+    def verify_instagram_post_by_media_id(self, media_id, page_token):
+        """Legacy method - now calls the enhanced verification with fallback."""
+        return self.verify_instagram_post_with_fallback(media_id, page_token)[0]
 
     def verify_facebook_post_by_video_id(self, video_id, page_token):
         """Verify Facebook video post is live by polling the video_id."""
@@ -1104,6 +1159,38 @@ class DropboxToInstagramUploader:
         except Exception as e:
             self.send_message(f"❌ Exception verifying Facebook video post: {e}", level=logging.ERROR)
             return False
+
+    def retry_instagram_verification(self, media_id: str, ig_username: str):
+        """Retry IG verification once more after Facebook post."""
+        self.send_message("🔁 Rechecking Instagram post status after Facebook upload...")
+
+        url = f"https://graph.facebook.com/v18.0/{media_id}"
+        params = {
+            "fields": "id,permalink,caption",
+            "access_token": self.meta_token
+        }
+
+        try:
+            for attempt in range(1, 4):  # 3 quick retries
+                res = self.session.get(url, params=params)
+                if res.status_code == 200:
+                    data = res.json()
+                    permalink = data.get("permalink")
+                    if permalink:
+                        self.send_message(f"✅ IG post live after FB post!\n🔗 {permalink}")
+                        return True
+                elif "ShadowIGMedia" in res.text:
+                    self.send_message(f"⏳ IG still finalizing metadata (attempt {attempt})...")
+                else:
+                    self.send_message(f"⚠️ Unexpected IG error: {res.text}")
+                    break
+                time.sleep(5)
+        except Exception as e:
+            self.send_message(f"❌ IG recheck failed: {e}")
+
+        fallback = f"https://instagram.com/{ig_username}/"
+        self.send_message(f"⚠️ Couldn't get IG permalink. Check profile:\n{fallback}")
+        return False
 
 if __name__ == "__main__":
     DropboxToInstagramUploader().run()
