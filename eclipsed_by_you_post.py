@@ -336,6 +336,13 @@ class DropboxToInstagramUploader:
         self.log_console_only(f"⏱️ Publish request completed in {publish_time:.2f} seconds", level=logging.INFO)
         self.log_console_only(f"📊 Publish response status: {pub.status_code}", level=logging.INFO)
         
+        # Log the full response for debugging (console only)
+        try:
+            response_json = pub.json()
+            self.log_console_only(f"📄 Instagram publish response: {json.dumps(response_json, indent=2)}", level=logging.INFO)
+        except:
+            self.log_console_only(f"📄 Instagram publish response text: {pub.text}", level=logging.INFO)
+        
         # Track Instagram and Facebook results separately
         instagram_success = False
         facebook_success = False
@@ -364,12 +371,42 @@ class DropboxToInstagramUploader:
             # Return success status for both platforms
             return True, media_type, instagram_success, facebook_success
         else:
+            # Handle potential false negative from Instagram API
             error_msg = pub.json().get("error", {}).get("message", "Unknown error")
             error_code = pub.json().get("error", {}).get("code", "N/A")
-            self.send_message(f"❌ Instagram publish failed: {name}\n📸 Error: {error_msg}\n📸 Code: {error_code}\n📸 Status: {pub.status_code}", level=logging.ERROR)
+            
+            # Check if this might be a false negative (common with Instagram API)
+            # Sometimes Instagram returns 400 with "Fatal" error but the post is actually successful
+            if pub.status_code == 400 and error_msg == "Fatal" and error_code == -1:
+                self.send_message(f"⚠️ Instagram API returned 'Fatal' error, but this might be a false negative.", level=logging.WARNING)
+                self.send_message(f"📸 Error: {error_msg}\n📸 Code: {error_code}\n📸 Status: {pub.status_code}", level=logging.WARNING)
+                
+                # Try to verify if the post was actually published by checking recent posts
+                self.log_console_only("🔍 Attempting to verify if post was actually published despite API error...", level=logging.INFO)
+                
+                # Wait a bit for the post to be available
+                time.sleep(10)
+                
+                # Try to get recent posts to see if our post is there
+                if self.verify_post_was_published_despite_error(page_token):
+                    self.send_message(f"✅ Post verification successful! Instagram post was published despite API error.", level=logging.INFO)
+                    instagram_success = True
+                    
+                    # Also post to Facebook Page if it's a REEL
+                    if media_type == "REELS":
+                        self.log_console_only("📘 Step 5: Starting Facebook Page upload...", level=logging.INFO)
+                        facebook_success = self.post_to_facebook_page(temp_link, description, page_token, None)
+                    else:
+                        facebook_success = True
+                    
+                    return True, media_type, instagram_success, facebook_success
+                else:
+                    self.send_message(f"❌ Instagram publish failed: {name}\n📸 Error: {error_msg}\n📸 Code: {error_code}\n📸 Status: {pub.status_code}", level=logging.ERROR)
+            else:
+                self.send_message(f"❌ Instagram publish failed: {name}\n📸 Error: {error_msg}\n📸 Code: {error_code}\n📸 Status: {pub.status_code}", level=logging.ERROR)
+            
             # Do not attempt verification with creation_id, as it is invalid after publish
             return False, media_type, instagram_success, facebook_success
-
 
     def post_to_facebook_page(self, video_url, caption, page_token=None, instagram_media_id=None):
         """Publish the Reel video also to the Facebook Page."""
@@ -391,9 +428,31 @@ class DropboxToInstagramUploader:
 
         # Try crossposting first if we have Instagram media ID
         if instagram_media_id:
+            self.log_console_only("🔄 Attempting to crosspost from Instagram to Facebook...", level=logging.INFO)
             
+            # Try to crosspost the Instagram post to Facebook
+            crosspost_url = f"https://graph.facebook.com/{self.fb_page_id}/feed"
+            crosspost_data = {
+                "access_token": page_token,
+                "message": caption,
+                "attached_media": json.dumps([{"media_fbid": instagram_media_id}])
+            }
+            
+            try:
+                crosspost_res = self.session.post(crosspost_url, data=crosspost_data)
+                if crosspost_res.status_code == 200:
+                    crosspost_response = crosspost_res.json()
+                    post_id = crosspost_response.get("id", "Unknown")
+                    self.send_message(f"✅ Facebook crosspost successful!\n📘 Post ID: {post_id}\n📘 Page ID: {self.fb_page_id}")
+                    return True
+                else:
+                    self.log_console_only(f"❌ Crosspost failed: {crosspost_res.status_code}", level=logging.INFO)
+                    self.log_console_only(f"📄 Crosspost response: {crosspost_res.text}", level=logging.INFO)
+            except Exception as e:
+                self.log_console_only(f"❌ Crosspost exception: {e}", level=logging.INFO)
+        
         # Fallback to direct video upload
-            self.log_console_only("🔄 Using direct video upload to Facebook...", level=logging.INFO)
+        self.log_console_only("🔄 Using direct video upload to Facebook...", level=logging.INFO)
 
         post_url = f"https://graph.facebook.com/{self.fb_page_id}/videos"
         data = {
@@ -538,7 +597,9 @@ class DropboxToInstagramUploader:
             if facebook_success:
                 self.send_message("✅ Successfully posted one reel to Facebook Page", level=logging.INFO)
             else:
-                self.send_message("❌ Facebook Page post failed", level=logging.ERROR)
+                self.send_message("⚠️ Facebook Page post failed (Instagram post was successful)", level=logging.WARNING)
+        elif media_type == "IMAGE":
+            self.log_console_only("ℹ️ No Facebook post attempted for image (Instagram only)", level=logging.INFO)
         
         # Final summary with remaining files count
         if media_type == "REELS":
@@ -577,6 +638,7 @@ class DropboxToInstagramUploader:
                 self.log_console_only("📊 Summary: Instagram ✅ | Facebook status reported separately above", level=logging.INFO)
             else:
                 self.send_message("❌ Instagram post failed.", level=logging.ERROR)
+                self.log_console_only("📊 Summary: Instagram ❌ | Check logs above for details", level=logging.INFO)
             
         except Exception as e:
             self.send_message(f"❌ Script crashed:\n{str(e)}", level=logging.ERROR)
@@ -1055,6 +1117,64 @@ class DropboxToInstagramUploader:
             
         except Exception as e:
             self.send_message(f"❌ Exception verifying Facebook video post: {e}", level=logging.ERROR)
+            return False
+
+    def verify_post_was_published_despite_error(self, page_token):
+        """Verify if a post was actually published despite API errors by checking recent posts."""
+        try:
+            self.log_console_only("🔍 Checking recent posts to verify if our post was published...", level=logging.INFO)
+            
+            # Get recent posts from the Instagram account
+            url = f"{self.INSTAGRAM_API_BASE}/{self.ig_id}/media"
+            params = {
+                "fields": "id,media_type,media_url,thumbnail_url,permalink_url,created_time",
+                "access_token": page_token,
+                "limit": 5  # Check last 5 posts
+            }
+            
+            self.log_console_only(f"📡 Checking recent posts: {url}", level=logging.INFO)
+            
+            res = self.session.get(url, params=params)
+            if res.status_code == 200:
+                posts_data = res.json()
+                recent_posts = posts_data.get("data", [])
+                
+                self.log_console_only(f"📋 Found {len(recent_posts)} recent posts", level=logging.INFO)
+                
+                # Check if any of the recent posts were created in the last few minutes
+                current_time = datetime.utcnow()
+                for post in recent_posts:
+                    created_time_str = post.get("created_time", "")
+                    if created_time_str:
+                        try:
+                            created_time = datetime.fromisoformat(created_time_str.replace('Z', '+00:00'))
+                            time_diff = (current_time - created_time.replace(tzinfo=None)).total_seconds()
+                            
+                            # If post was created in the last 5 minutes, it's likely our post
+                            if time_diff < 300:  # 5 minutes
+                                post_id = post.get("id", "Unknown")
+                                media_type = post.get("media_type", "Unknown")
+                                permalink = post.get("permalink_url", "Not available")
+                                
+                                self.log_console_only(f"✅ Found recent post that matches our upload time!", level=logging.INFO)
+                                self.log_console_only(f"📸 Post ID: {post_id}", level=logging.INFO)
+                                self.log_console_only(f"📂 Media Type: {media_type}", level=logging.INFO)
+                                self.log_console_only(f"🔗 Permalink: {permalink}", level=logging.INFO)
+                                self.log_console_only(f"⏰ Created {time_diff:.1f} seconds ago", level=logging.INFO)
+                                
+                                return True
+                        except Exception as e:
+                            self.log_console_only(f"⚠️ Error parsing post time: {e}", level=logging.WARNING)
+                            continue
+                
+                self.log_console_only("❌ No recent posts found that match our upload time", level=logging.INFO)
+                return False
+            else:
+                self.log_console_only(f"❌ Failed to get recent posts: {res.status_code}", level=logging.INFO)
+                return False
+                
+        except Exception as e:
+            self.log_console_only(f"❌ Exception checking recent posts: {e}", level=logging.INFO)
             return False
 
 if __name__ == "__main__":
