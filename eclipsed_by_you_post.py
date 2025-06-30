@@ -313,7 +313,7 @@ class DropboxToInstagramUploader:
                     self.log_console_only(f"✅ Instagram video processing completed in {processing_time:.2f} seconds!", level=logging.INFO)
                     
                     # Wait 8 seconds after FINISHED status before publishing (reduced from 15)
-                    self.log_console_only("⏳ Waiting 8 seconds before publishing...", level=logging.INFO)
+                    self.log_console_only("⏳ Waiting 15 seconds before publishing...", level=logging.INFO)
                     time.sleep(15)
                     break
                 elif current_status == "ERROR":
