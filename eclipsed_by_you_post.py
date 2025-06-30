@@ -314,7 +314,7 @@ class DropboxToInstagramUploader:
                     
                     # Wait 8 seconds after FINISHED status before publishing (reduced from 15)
                     self.log_console_only("⏳ Waiting 8 seconds before publishing...", level=logging.INFO)
-                    time.sleep(8)
+                    time.sleep(15)
                     break
                 elif current_status == "ERROR":
                     self.send_message(f"❌ Instagram processing failed: {name}\n📸 Status: ERROR", level=logging.ERROR)
