@@ -552,6 +552,7 @@ class DropboxToInstagramUploader:
     def run(self):
         """Main execution method that orchestrates the posting process."""
         self.log_console_only(f"📡 Run started at: {datetime.now(self.ist).strftime('%Y-%m-%d %H:%M:%S')}", level=logging.INFO)
+        dbx = None
         
         try:
             # Check token expiry first
@@ -584,6 +585,11 @@ class DropboxToInstagramUploader:
         finally:
             # Send token expiry info before completion
             self.send_token_expiry_info()
+
+            if dbx:
+                remaining_count = self.get_remaining_files_count(dbx)
+                self.send_message(f"✅ Remaining files in Dropbox: {remaining_count}")
+
             duration = time.time() - self.start_time
             self.log_console_only(f"🏁 Run complete in {duration:.1f} seconds", level=logging.INFO)
 
