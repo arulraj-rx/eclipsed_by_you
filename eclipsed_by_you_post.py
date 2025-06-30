@@ -90,19 +90,19 @@ class DropboxToInstagramUploader:
 
             data = res.json().get("data", {})
             is_valid = data.get("is_valid", False)
-            expires_at = data.get("expires_at")  # epoch timestamp
-            data_access_expires_at = data.get("data_access_expires_at")  # epoch timestamp
+            expires_at = data.get("expires_at")  # Token expiry (2 months) - CRITICAL
+            data_access_expires_at = data.get("data_access_expires_at")  # Data access expiry (3 months)
 
             if is_valid:
                 message_parts = ["🔐 Meta Token Status:", "✅ Token is valid."]
                 
-                # Always show token expiry if it exists
+                # Track the most critical expiry first: expires_at (Token Expiry)
                 if expires_at and expires_at > 0:
                     expiry_dt = datetime.utcfromtimestamp(expires_at)
                     now_utc = datetime.utcnow()
                     delta = expiry_dt - now_utc
                     
-                    # More accurate month/day calculation
+                    # Calculate exact days remaining
                     total_days = delta.days
                     months = total_days // 30
                     days = total_days % 30
@@ -115,17 +115,33 @@ class DropboxToInstagramUploader:
                     # Add debug info (console only)
                     self.log_console_only(f"🔍 Token expiry debug: expiry_timestamp={expires_at}, now_timestamp={now_utc.timestamp()}, delta_days={total_days}", level=logging.INFO)
                     
-                    message_parts.append(f"⏳ Token expires on {expiry_dt.strftime('%Y-%m-%d %H:%M:%S')} UTC ({time_left} left)")
+                    # Enhanced warning system for CRITICAL token expiry
+                    expiry_date = expiry_dt.strftime('%Y-%m-%d %H:%M UTC')
+                    msg = f"⏳ Token expires on {expiry_date} ({time_left} left)"
+                    
+                    if total_days < 10:
+                        msg += "\n🚨 CRITICAL: Token will become invalid soon! Regenerate it ASAP!"
+                        message_parts.append(msg)
+                        self.send_message("🚨 URGENT: Token expires in less than 10 days! API calls will fail after this date!", level=logging.ERROR)
+                    elif total_days < 30:
+                        msg += "\n⚠️ WARNING: Token is over halfway to expiration. Refresh soon to avoid service interruption."
+                        message_parts.append(msg)
+                        self.send_message("⚠️ WARNING: Token expires in less than 30 days! Plan to refresh soon.", level=logging.WARNING)
+                    elif total_days < 50:
+                        msg += "\n💡 Token is approaching expiration. Plan to refresh soon."
+                        message_parts.append(msg)
+                    else:
+                        message_parts.append(msg)
                 else:
                     message_parts.append("🔐 Token does not expire (long-lived token)")
 
-                # Show data access expiry if it exists
+                # Track data access expiry (less critical but still important)
                 if data_access_expires_at and data_access_expires_at > 0:
                     daa_expiry_dt = datetime.utcfromtimestamp(data_access_expires_at)
                     now_utc = datetime.utcnow()
                     daa_delta = daa_expiry_dt - now_utc
                     
-                    # More accurate month/day calculation
+                    # Calculate exact days remaining
                     daa_total_days = daa_delta.days
                     daa_months = daa_total_days // 30
                     daa_days = daa_total_days % 30
@@ -138,7 +154,28 @@ class DropboxToInstagramUploader:
                     # Add debug info (console only)
                     self.log_console_only(f"🔍 Data access expiry debug: expiry_timestamp={data_access_expires_at}, now_timestamp={now_utc.timestamp()}, delta_days={daa_total_days}", level=logging.INFO)
                     
-                    message_parts.append(f"📅 Data access expires on {daa_expiry_dt.strftime('%Y-%m-%d %H:%M:%S')} UTC ({daa_time_left} left)")
+                    # Enhanced warning system for data access expiry
+                    expiry_date = daa_expiry_dt.strftime('%Y-%m-%d %H:%M UTC')
+                    msg = f"📅 Data access expires on {expiry_date} ({daa_time_left} left)"
+                    
+                    if daa_total_days < 10:
+                        msg += "\n⚠️ WARNING: Data access will be limited soon! Consider refreshing token."
+                        message_parts.append(msg)
+                        self.send_message("⚠️ WARNING: Data access expires in less than 10 days!", level=logging.WARNING)
+                    elif daa_total_days < 30:
+                        msg += "\n⏳ Data access is over halfway to expiration. Consider refreshing soon."
+                        message_parts.append(msg)
+                    elif daa_total_days < 50:
+                        msg += "\n💡 Data access is approaching expiration. Plan to refresh soon."
+                        message_parts.append(msg)
+                    else:
+                        message_parts.append(msg)
+                
+                # Add explanation of the two expiry types
+                message_parts.append("\n📋 Expiry Types:")
+                message_parts.append("⏳ Token Expiry (expires_at): Token becomes invalid - API calls fail")
+                message_parts.append("📅 Data Access Expiry (data_access_expires_at): Limited data access")
+                message_parts.append("💡 Priority: Always refresh before token expiry (expires_at)")
                 
                 self.send_message("\n".join(message_parts), level=logging.INFO)
             else:
@@ -437,7 +474,7 @@ class DropboxToInstagramUploader:
                 try:
                     # Get Instagram username from IG_ID (you may need to adjust this based on your setup)
                     ig_username = "eclipsed_by_you"  # Default fallback username
-                    self.retry_instagram_verification(instagram_id, ig_username)
+                    self.retry_instagram_verification_after_fb(instagram_id, ig_username)
                 except Exception as e:
                     self.log_console_only(f"⚠️ Final Instagram verification failed: {e}", level=logging.WARNING)
             
@@ -516,6 +553,13 @@ class DropboxToInstagramUploader:
                 
                 # Verify the video post is live
                 self.verify_facebook_post_by_video_id(video_id, page_token)
+                
+                # Final Instagram verification after Facebook is done
+                if instagram_media_id:
+                    self.log_console_only("🔁 Running final Instagram verification after Facebook success...", level=logging.INFO)
+                    ig_username = "eclipsed_by_you"  # Default fallback username
+                    self.retry_instagram_verification_after_fb(instagram_media_id, ig_username)
+                
                 return True
             else:
                 error_msg = res.json().get("error", {}).get("message", "Unknown error")
@@ -1158,6 +1202,41 @@ class DropboxToInstagramUploader:
             
         except Exception as e:
             self.send_message(f"❌ Exception verifying Facebook video post: {e}", level=logging.ERROR)
+            return False
+
+    def retry_instagram_verification_after_fb(self, media_id, ig_username):
+        """Final IG check after FB upload."""
+        self.send_message("🔁 Final Instagram post check after Facebook publishing...")
+
+        try:
+            url = f"https://graph.facebook.com/v18.0/{media_id}"
+            params = {
+                "fields": "permalink,caption",
+                "access_token": self.meta_token
+            }
+
+            for attempt in range(2):  # Retry once or twice
+                res = self.session.get(url, params=params)
+                if res.status_code == 200:
+                    data = res.json()
+                    permalink = data.get("permalink")
+                    if permalink:
+                        self.send_message(f"✅ Final IG post verification successful!\n🔗 {permalink}")
+                        return True
+                elif "ShadowIGMedia" in res.text:
+                    self.send_message(f"⏳ IG still finalizing post (ShadowIGMedia fallback)... attempt {attempt+1}")
+                else:
+                    self.send_message(f"⚠️ Error during IG fallback check: {res.text}")
+                    break
+                time.sleep(6)
+
+            # Fallback to profile link
+            profile_url = f"https://instagram.com/{ig_username}/"
+            self.send_message(f"⚠️ IG post permalink not ready, but post was likely successful. Check: {profile_url}")
+            return False
+
+        except Exception as e:
+            self.send_message(f"❌ IG fallback verification failed: {str(e)}")
             return False
 
     def retry_instagram_verification(self, media_id: str, ig_username: str):
