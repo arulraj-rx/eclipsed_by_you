@@ -96,17 +96,31 @@ class DropboxToInstagramUploader:
             if is_valid:
                 message_parts = ["🔐 Meta Token Status:", "✅ Token is valid."]
                 
-                if expires_at:
+                # Always show token expiry if it exists
+                if expires_at and expires_at > 0:
                     expiry_dt = datetime.utcfromtimestamp(expires_at)
                     delta = expiry_dt - datetime.utcnow()
-                    message_parts.append(f"⏳ Token expires on {expiry_dt.strftime('%Y-%m-%d %H:%M:%S')} UTC ({delta.days} days left)")
+                    months = delta.days // 30
+                    days = delta.days % 30
+                    if months > 0:
+                        time_left = f"{months} months, {days} days"
+                    else:
+                        time_left = f"{days} days"
+                    message_parts.append(f"⏳ Token expires on {expiry_dt.strftime('%Y-%m-%d %H:%M:%S')} UTC ({time_left} left)")
                 else:
-                    message_parts.append("🔐 Token does not expire (likely a Page or system token)")
+                    message_parts.append("🔐 Token does not expire (long-lived token)")
 
-                if data_access_expires_at:
+                # Show data access expiry if it exists
+                if data_access_expires_at and data_access_expires_at > 0:
                     daa_expiry_dt = datetime.utcfromtimestamp(data_access_expires_at)
                     daa_delta = daa_expiry_dt - datetime.utcnow()
-                    message_parts.append(f"📅 Data access expires on {daa_expiry_dt.strftime('%Y-%m-%d %H:%M:%S')} UTC ({daa_delta.days} days left)")
+                    daa_months = daa_delta.days // 30
+                    daa_days = daa_delta.days % 30
+                    if daa_months > 0:
+                        daa_time_left = f"{daa_months} months, {daa_days} days"
+                    else:
+                        daa_time_left = f"{daa_days} days"
+                    message_parts.append(f"📅 Data access expires on {daa_expiry_dt.strftime('%Y-%m-%d %H:%M:%S')} UTC ({daa_time_left} left)")
                 
                 self.send_message("\n".join(message_parts), level=logging.INFO)
             else:
@@ -350,6 +364,10 @@ class DropboxToInstagramUploader:
             else:
                 self.send_message(f"✅ Instagram post published successfully!\n📸 Media ID: {instagram_id}\n📸 Account ID: {self.ig_id}\n📦 Files left: {total_files - 1}")
                 instagram_success = True
+                
+                # Wait a moment for the post to become available before verification
+                self.log_console_only("⏳ Waiting 10 seconds before verification to allow post to become available...", level=logging.INFO)
+                time.sleep(10)
                 
                 # Verify the post is live using the published media_id (not creation_id)
                 self.verify_instagram_post_by_media_id(instagram_id, page_token)
