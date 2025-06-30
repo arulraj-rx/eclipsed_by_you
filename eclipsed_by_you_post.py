@@ -75,31 +75,42 @@ class DropboxToInstagramUploader:
             self.logger.info(full_msg)
 
     def send_token_expiry_info(self):
-        """Get token expiry info using lightweight /me endpoint (no app secret required)."""
+        """Get comprehensive token expiry info using debug_token endpoint."""
         try:
-            url = f"https://graph.facebook.com/v18.0/me?fields=token_expiration_date&access_token={self.meta_token}"
-            res = self.session.get(url)
+            url = "https://graph.facebook.com/debug_token"
+            params = {
+                "input_token": self.meta_token,
+                "access_token": self.meta_token
+            }
+            res = self.session.get(url, params=params)
             
-            if res.status_code == 200:
-                data = res.json()
-                expiry = data.get("token_expiration_date")
+            if res.status_code != 200:
+                self.send_message(f"❌ Failed to check token: {res.text}", level=logging.ERROR)
+                return
+
+            data = res.json().get("data", {})
+            is_valid = data.get("is_valid", False)
+            expires_at = data.get("expires_at")  # epoch timestamp
+            data_access_expires_at = data.get("data_access_expires_at")  # epoch timestamp
+
+            if is_valid:
+                message_parts = ["🔐 Meta Token Status:", "✅ Token is valid."]
                 
-                if expiry:
-                    expiry_dt = datetime.strptime(expiry, "%Y-%m-%dT%H:%M:%S%z")
-                    remaining = expiry_dt - datetime.now(expiry_dt.tzinfo)
-                    days = remaining.days
-                    hours = int(remaining.total_seconds() // 3600)
-                    
-                    message = (
-                        f"🔐 Meta Token Expiry Info:\n"
-                        f"📅 Expires on: {expiry_dt.strftime('%Y-%m-%d %H:%M:%S %Z')}\n"
-                        f"⏳ Time left: {days} days ({hours} hours)"
-                    )
-                    self.send_message(message, level=logging.INFO)
+                if expires_at:
+                    expiry_dt = datetime.utcfromtimestamp(expires_at)
+                    delta = expiry_dt - datetime.utcnow()
+                    message_parts.append(f"⏳ Token expires on {expiry_dt.strftime('%Y-%m-%d %H:%M:%S')} UTC ({delta.days} days left)")
                 else:
-                    self.send_message("⚠️ Expiry field missing in response", level=logging.WARNING)
+                    message_parts.append("🔐 Token does not expire (likely a Page or system token)")
+
+                if data_access_expires_at:
+                    daa_expiry_dt = datetime.utcfromtimestamp(data_access_expires_at)
+                    daa_delta = daa_expiry_dt - datetime.utcnow()
+                    message_parts.append(f"📅 Data access expires on {daa_expiry_dt.strftime('%Y-%m-%d %H:%M:%S')} UTC ({daa_delta.days} days left)")
+                
+                self.send_message("\n".join(message_parts), level=logging.INFO)
             else:
-                self.send_message(f"⚠️ Token expiry check failed: {res.status_code} - {res.text}", level=logging.WARNING)
+                self.send_message("⚠️ Token is invalid or expired.", level=logging.WARNING)
                 
         except Exception as e:
             self.send_message(f"⚠️ Could not retrieve token expiry info: {str(e)}", level=logging.WARNING)
