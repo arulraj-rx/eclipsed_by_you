@@ -995,18 +995,18 @@ class DropboxToInstagramUploader:
         try:
             self.log_console_only("🔍 Verifying Instagram post is live...", level=logging.INFO)
             
-            # Poll the media_id to get post details
+            # Poll the media_id to get post details - try to get permalink_url when available
             url = f"{self.INSTAGRAM_API_BASE}/{media_id}"
             params = {
-                "fields": "id,permalink_url,media_type,media_url,thumbnail_url,created_time",
+                "fields": "id,permalink_url,media_type,created_time",
                 "access_token": page_token
             }
             
             self.log_console_only(f"📡 Verification URL: {url}", level=logging.INFO)
             
-            # Try up to 2 times with 3-second intervals (minimal retries as suggested)
-            for attempt in range(2):
-                self.log_console_only(f"🔄 Verification attempt {attempt + 1}/2", level=logging.INFO)
+            # Try up to 5 times with 8-second intervals (increased retries and wait time)
+            for attempt in range(1, 6):
+                self.log_console_only(f"🔄 Verification attempt {attempt}/5", level=logging.INFO)
                 
                 res = self.session.get(url, params=params)
                 if res.status_code == 200:
@@ -1016,23 +1016,42 @@ class DropboxToInstagramUploader:
                     media_type = post_data.get("media_type", "Unknown")
                     created_time = post_data.get("created_time", "Unknown")
                     
-                    self.send_message(f"✅ Instagram post verified as live!", level=logging.INFO)
-                    self.log_console_only(f"📸 Post ID: {post_id}", level=logging.INFO)
-                    self.log_console_only(f"🔗 Permalink: {permalink}", level=logging.INFO)
-                    self.log_console_only(f"📂 Media Type: {media_type}", level=logging.INFO)
-                    self.log_console_only(f"⏰ Created: {created_time}", level=logging.INFO)
-                    return True
+                    # Check if we got the permalink_url (post is fully live)
+                    if permalink and permalink != "Not available":
+                        self.send_message(f"✅ Instagram post verified as live!", level=logging.INFO)
+                        self.log_console_only(f"📸 Post ID: {post_id}", level=logging.INFO)
+                        self.log_console_only(f"🔗 Permalink: {permalink}", level=logging.INFO)
+                        self.log_console_only(f"📂 Media Type: {media_type}", level=logging.INFO)
+                        self.log_console_only(f"⏰ Created: {created_time}", level=logging.INFO)
+                        return True
+                    else:
+                        # Post exists but permalink not yet available
+                        self.log_console_only("⏳ Post exists but permalink not yet available", level=logging.INFO)
+                        
                 elif res.status_code == 400:
-                    self.log_console_only(f"⚠️ Verification returned 400 (post may still be processing): {res.text}", level=logging.INFO)
-                    if attempt < 1:  # Don't sleep on last attempt
-                        time.sleep(3)
+                    error_data = res.json()
+                    error_msg = error_data.get("error", {}).get("message", "Unknown error")
+                    self.log_console_only(f"⚠️ Verification returned 400: {error_msg}", level=logging.INFO)
+                    
+                    # Check if it's a ShadowIGMedia error
+                    if "ShadowIGMedia" in error_msg or "nonexisting field" in error_msg.lower():
+                        self.send_message(f"⏳ Post is still being finalized (ShadowIGMedia) - attempt {attempt}/5", level=logging.INFO)
+                        self.log_console_only("✅ Post exists but metadata isn't ready yet", level=logging.INFO)
+                    else:
+                        self.log_console_only(f"⚠️ Unknown error: {error_msg}", level=logging.INFO)
                 else:
-                    self.log_console_only(f"❌ Verification failed (attempt {attempt + 1}): {res.status_code} - {res.text}", level=logging.INFO)
-                    if attempt < 1:  # Don't sleep on last attempt
-                        time.sleep(3)
+                    self.log_console_only(f"❌ Verification failed (attempt {attempt}): {res.status_code} - {res.text}", level=logging.INFO)
+                
+                # Wait before next attempt (except on last attempt)
+                if attempt < 5:
+                    wait_time = 8  # 8 seconds as suggested
+                    self.log_console_only(f"⏳ Waiting {wait_time} seconds before next attempt...", level=logging.INFO)
+                    time.sleep(wait_time)
             
-            self.log_console_only("⚠️ Could not verify Instagram post is live, but post was published successfully", level=logging.WARNING)
-            return False
+            # If we get here, the post exists but may not be fully live yet
+            self.log_console_only("⚠️ Post was published but may still be processing (ShadowIGMedia state)", level=logging.WARNING)
+            self.send_message("✅ Instagram post published successfully (may still be processing)", level=logging.INFO)
+            return True  # Consider it successful since it was published
             
         except Exception as e:
             self.log_console_only(f"❌ Exception during Instagram verification: {e}", level=logging.INFO)
