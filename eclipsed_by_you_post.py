@@ -238,6 +238,13 @@ class DropboxToInstagramUploader:
             return "✨ #eclipsed_by_you ✨", "✨ #eclipsed_by_you ✨"
 
     def post_to_instagram(self, dbx, file, caption, description):
+        """
+        Instagram upload flow:
+        1. Create IG media container → get creation_id
+        2. Poll status_code, every 30 sec up to 10 times (≈5 min)
+        3. If FINISHED, wait 10-15 sec, then call /media_publish
+        4. Capture media_id, optionally poll (minimal, 2 retries)
+        """
         name = file.name
         ext = name.lower()
         media_type = "REELS" if ext.endswith((".mp4", ".mov")) else "IMAGE"
@@ -307,7 +314,7 @@ class DropboxToInstagramUploader:
             self.log_console_only("⏳ Step 3: Processing video for Instagram...", level=logging.INFO)
             processing_start = time.time()
             for attempt in range(self.INSTAGRAM_REEL_STATUS_RETRIES):
-                self.log_console_only(f"🔄 Processing attempt {attempt + 1}/{self.INSTAGRAM_REEL_STATUS_RETRIES}", level=logging.INFO)
+                self.log_console_only(f"🔄 Processing attempt {attempt + 1}/{self.INSTAGRAM_REEL_STATUS_RETRIES} (30s intervals)", level=logging.INFO)
                 
                 status_response = self.session.get(
                     f"{self.INSTAGRAM_API_BASE}/{creation_id}?fields=status_code&access_token={page_token}"
@@ -326,9 +333,10 @@ class DropboxToInstagramUploader:
                     processing_time = time.time() - processing_start
                     self.log_console_only(f"✅ Instagram video processing completed in {processing_time:.2f} seconds!", level=logging.INFO)
                     
-                    # Wait 8 seconds after FINISHED status before publishing (reduced from 15)
-                    self.log_console_only("⏳ Waiting 8 seconds before publishing...", level=logging.INFO)
-                    time.sleep(8)
+                    # Wait 10-15 seconds after FINISHED status before publishing
+                    wait_time = 12  # Middle of 10-15 range
+                    self.log_console_only(f"⏳ Waiting {wait_time} seconds before publishing...", level=logging.INFO)
+                    time.sleep(wait_time)
                     break
                 elif current_status == "ERROR":
                     self.send_message(f"❌ Instagram processing failed: {name}\n📸 Status: ERROR", level=logging.ERROR)
@@ -369,8 +377,11 @@ class DropboxToInstagramUploader:
                 self.log_console_only("⏳ Waiting 10 seconds before verification to allow post to become available...", level=logging.INFO)
                 time.sleep(10)
                 
-                # Verify the post is live using the published media_id (not creation_id)
-                self.verify_instagram_post_by_media_id(instagram_id, page_token)
+                # Try to verify the post, but don't let verification failure affect success
+                try:
+                    self.verify_instagram_post_by_media_id(instagram_id, page_token)
+                except Exception as e:
+                    self.log_console_only(f"⚠️ Verification failed but post was published successfully: {e}", level=logging.WARNING)
             
             # Also post to Facebook Page if it's a REEL (using the same page token)
             if media_type == "REELS":
@@ -982,7 +993,7 @@ class DropboxToInstagramUploader:
     def verify_instagram_post_by_media_id(self, media_id, page_token):
         """Verify Instagram post is live by polling the published media_id."""
         try:
-            self.send_message("🔍 Verifying Instagram post is live...", level=logging.INFO)
+            self.log_console_only("🔍 Verifying Instagram post is live...", level=logging.INFO)
             
             # Poll the media_id to get post details
             url = f"{self.INSTAGRAM_API_BASE}/{media_id}"
@@ -993,9 +1004,9 @@ class DropboxToInstagramUploader:
             
             self.log_console_only(f"📡 Verification URL: {url}", level=logging.INFO)
             
-            # Try up to 10 times with 5-second intervals (increased from 5 attempts, 3 seconds)
-            for attempt in range(10):
-                self.log_console_only(f"🔄 Verification attempt {attempt + 1}/10", level=logging.INFO)
+            # Try up to 2 times with 3-second intervals (minimal retries as suggested)
+            for attempt in range(2):
+                self.log_console_only(f"🔄 Verification attempt {attempt + 1}/2", level=logging.INFO)
                 
                 res = self.session.get(url, params=params)
                 if res.status_code == 200:
@@ -1012,19 +1023,19 @@ class DropboxToInstagramUploader:
                     self.log_console_only(f"⏰ Created: {created_time}", level=logging.INFO)
                     return True
                 elif res.status_code == 400:
-                    self.send_message("⚠️ Permanent error on verification (400 Bad Request), stopping early.", level=logging.WARNING)
-                    self.log_console_only(f"❌ Unrecoverable error on attempt {attempt + 1}: {res.status_code}", level=logging.INFO)
-                    break
+                    self.log_console_only(f"⚠️ Verification returned 400 (post may still be processing): {res.text}", level=logging.INFO)
+                    if attempt < 1:  # Don't sleep on last attempt
+                        time.sleep(3)
                 else:
-                    self.log_console_only(f"❌ Verification failed (attempt {attempt + 1}): {res.status_code}", level=logging.INFO)
-                    if attempt < 9:  # Don't sleep on last attempt
-                        time.sleep(5)  # Increased from 3 seconds
+                    self.log_console_only(f"❌ Verification failed (attempt {attempt + 1}): {res.status_code} - {res.text}", level=logging.INFO)
+                    if attempt < 1:  # Don't sleep on last attempt
+                        time.sleep(3)
             
-            self.send_message("⚠️ Could not verify Instagram post is live after 10 attempts", level=logging.WARNING)
+            self.log_console_only("⚠️ Could not verify Instagram post is live, but post was published successfully", level=logging.WARNING)
             return False
             
         except Exception as e:
-            self.send_message(f"❌ Exception verifying Instagram post: {e}", level=logging.ERROR)
+            self.log_console_only(f"❌ Exception during Instagram verification: {e}", level=logging.INFO)
             return False
 
     def verify_facebook_post_by_video_id(self, video_id, page_token):
