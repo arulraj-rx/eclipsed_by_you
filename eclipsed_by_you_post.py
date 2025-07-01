@@ -291,7 +291,7 @@ class DropboxToInstagramUploader:
 
         # After media creation, before publishing, poll IG audit if REELS
         if media_type == "REELS":
-            audit_result = self.poll_ig_audit(creation_id, page_token)
+            audit_result = self.poll_media_audit(creation_id, page_token, platform="IG")
             if audit_result is False:
                 self.send_message("🚫 Instagram audit blocked the video. Skipping Facebook upload.")
                 # Only delete file if BLOCKED
@@ -342,15 +342,9 @@ class DropboxToInstagramUploader:
                 self.log_console_only("📘 Step 5: Starting Facebook Page upload...", level=logging.INFO)
                 facebook_success = self.post_to_facebook_page(temp_link, description, page_token, instagram_id)
                 if facebook_success and isinstance(facebook_success, str):
-                    fb_audit_result = self.poll_fb_audit(facebook_success, page_token)
+                    fb_audit_result = self.poll_media_audit(facebook_success, page_token, platform="FB")
                     if fb_audit_result is False:
                         self.send_message("🚫 Facebook audit blocked the video.")
-                        # Only delete file if BLOCKED on FB (optional, or just log)
-                        # try:
-                        #     dbx.files_delete_v2(file.path_lower)
-                        #     self.log_console_only(f"🗑️ Deleted file after FB BLOCKED: {file.name}")
-                        # except Exception as e:
-                        #     self.log_console_only(f"⚠️ Failed to delete file {file.name}: {e}", level=logging.WARNING)
                         facebook_success = False
                     elif fb_audit_result is None:
                         self.send_message("⏳ Facebook audit timed out. Will retry later. Not deleting file.")
@@ -1060,79 +1054,54 @@ class DropboxToInstagramUploader:
             self.send_message(f"❌ Exception verifying Facebook video post: {e}", level=logging.ERROR)
             return False
 
-    def poll_ig_audit(self, creation_id, page_token, attempts=24, delay=5):
-        """Poll Instagram status_code until FINISHED, then fetch audit_info. Returns True (pass), False (blocked), or None (timeout)."""
-        base_url = f"https://graph.facebook.com/v19.0/{creation_id}"
+    def poll_media_audit(self, media_id, access_token, platform="IG", attempts=24, delay=5):
+        """
+        Polls media/video status and only after it's ready fetches `audit_info`.
+        Handles BLOCKED, MUTED_AUDIO, DISMISS, None (not ready), and errors.
+        """
+        status_field = "status_code" if platform == "IG" else "status"
+        ready_states = ["FINISHED"] if platform == "IG" else ["ready", "published"]
+        base = f"https://graph.facebook.com/v19.0/{media_id}"
         for i in range(attempts):
+            # Step 1: Check processing status
             try:
-                # First poll only for status_code
-                r = self.session.get(f"{base_url}?fields=status_code&access_token={page_token}").json()
+                r = self.session.get(f"{base}?fields={status_field}&access_token={access_token}").json()
             except Exception as e:
-                self.send_message(f"⚠️ IG audit polling error (attempt {i+1}): {e}")
+                self.send_message(f"⚠️ {platform} audit polling error (attempt {i+1}): {e}")
                 time.sleep(delay)
                 continue
-
-            if 'error' in r:
-                self.send_message(f"⚠️ IG API error: {r['error'].get('message', str(r['error']))}")
-                return False
-
-            status = r.get("status_code")
-            self.log_console_only(f"[IG Polling] Attempt {i+1}: status_code={status}")
-
-            if status == "FINISHED":
-                # Now safely request audit_info
+            status = r.get(status_field)
+            self.log_console_only(f"[{platform} Audit] Attempt {i+1}: {status_field}={status}")
+            if status in ready_states:
+                # Step 2: Now fetch audit_info
                 try:
-                    audit_response = self.session.get(f"{base_url}?fields=audit_info&access_token={page_token}").json()
-                    audit_info = audit_response.get("audit_info", {})
-                    copyright_status = audit_info.get("copyright_status")
-                    self.log_console_only(f"[IG Polling] Audit finished: copyright_status={copyright_status}")
-                    if copyright_status == "BLOCKED":
-                        self.send_message("🚫 Instagram audit blocked the video. Skipping Facebook upload.")
-                        return False
-                    return True
+                    r2 = self.session.get(f"{base}?fields=audit_info&access_token={access_token}").json()
                 except Exception as e:
-                    self.send_message(f"⚠️ IG audit_info fetch failed: {e}")
+                    self.send_message(f"⚠️ {platform} audit_info fetch failed: {e}")
                     return False
-
-            time.sleep(delay)
-
-        self.send_message("⚠️ IG audit polling timed out — video never reached FINISHED. If this happens repeatedly, check your token scopes and App Review status.")
-        return None
-
-    def poll_fb_audit(self, video_id, page_token, attempts=24, delay=5):
-        """Poll Facebook audit_info for copyright status after upload. Returns True (pass), False (blocked), or None (timeout)."""
-        url = f"https://graph.facebook.com/v19.0/{video_id}?fields=status,audit_info&access_token={page_token}"
-        for i in range(attempts):
-            try:
-                r = self.session.get(url).json()
-            except Exception as e:
-                self.send_message(f"⚠️ FB audit polling error (attempt {i+1}): {e}")
-                time.sleep(delay)
-                continue
-
-            if 'error' in r:
-                self.send_message(f"⚠️ FB API error: {r['error'].get('message', str(r['error']))}")
-                return False
-
-            status = r.get("status")
-            audit_info = r.get("audit_info", {})
-
-            self.log_console_only(f"[FB Polling] Attempt {i+1}: status={status}, copyright_status={audit_info.get('copyright_status')}")
-
-            if status in ("ready", "published"):
-                copyright_status = audit_info.get("copyright_status")
-                if copyright_status is None:
-                    time.sleep(delay)
-                    continue
-                if copyright_status == "BLOCKED":
-                    self.send_message("🚫 Facebook audit blocked the video.")
+                if "error" in r2:
+                    err = r2["error"]
+                    # Non-ready fields return (#100): treat as not ready yet
+                    if err.get("code") == 100:
+                        self.log_console_only(f"[{platform} Audit] audit_info unavailable; retrying...", level=20)
+                        time.sleep(delay)
+                        continue
+                    else:
+                        self.send_message(f"⚠️ {platform} audit_info error: {err.get('message')}")
+                        return False
+                cs = r2.get("audit_info", {}).get("copyright_status")
+                self.log_console_only(f"[{platform} Audit] copyright_status={cs}")
+                if cs == "BLOCKED":
+                    self.send_message(f"🚫 {platform} audit blocked the video.")
                     return False
-                return True
-
+                elif cs == "MUTED_AUDIO":
+                    self.send_message(f"⚠️ {platform} published—audio muted due to copyright.")
+                    return True
+                else:  # cs == "DISMISS" or cs is None
+                    return True
             time.sleep(delay)
-
-        self.send_message("⚠️ FB audit polling timed out — treating as temporary. If this happens repeatedly, check your token scopes and App Review status.")
-        return None
+        self.send_message(f"⚠️ {platform} audit polling timed out — media never became ready.")
+        return False
 
 if __name__ == "__main__":
     DropboxToInstagramUploader().run()
