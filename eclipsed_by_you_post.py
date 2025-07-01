@@ -1042,41 +1042,46 @@ class DropboxToInstagramUploader:
         return False
 
     def poll_instagram_post_copyright(self, media_id, page_token, name, max_wait_seconds=300, initial_delay=5):
-        """Poll the published IG media_id for audit_info (copyright) after publishing."""
+        """Poll the published IG media_id for audit_info (copyright) after publishing, with delay to avoid ShadowIGMedia errors."""
         import time
-        start_time = time.time()
-        attempt = 0
-        delay = initial_delay
-        while time.time() - start_time < max_wait_seconds:
-            attempt += 1
-            audit_url = f"{self.INSTAGRAM_API_BASE}/{media_id}?fields=audit_info&access_token={page_token}"
-            audit_res = self.session.get(audit_url)
-            if audit_res.status_code != 200:
-                self.log_console_only(f"[IG Post Copyright Poll] audit_info error {audit_res.status_code}: {audit_res.text}", level=logging.INFO)
-                time.sleep(delay)
-                delay = min(delay * 1.5, 30)
-                continue
-            audit_info = audit_res.json().get("audit_info", {})
-            cs = audit_info.get("copyright_status")
-            self.log_console_only(f"[IG Post Copyright Poll] copyright_status = {cs}", level=logging.INFO)
-            if cs == "BLOCKED":
-                self.send_message(f"🚫 Instagram post blocked for copyright after publish. Deleting post...", level=logging.ERROR)
-                delete_url = f"{self.INSTAGRAM_API_BASE}/{media_id}"
-                delete_params = {"access_token": page_token}
-                del_res = self.session.delete(delete_url, params=delete_params)
-                if del_res.status_code == 200:
-                    self.send_message(f"✅ Instagram post deleted due to copyright block.", level=logging.INFO)
+        fields = 'audit_info{copyright_status,policy,status_description}'
+        url = f"{self.INSTAGRAM_API_BASE}/{media_id}?fields={fields}&access_token={page_token}"
+        # Wait 7 seconds after publish to avoid ShadowIGMedia
+        time.sleep(7)
+        for attempt in range(5):
+            audit_res = self.session.get(url)
+            if audit_res.status_code == 200:
+                audit_info = audit_res.json().get("audit_info", {})
+                cs = audit_info.get("copyright_status")
+                policy = audit_info.get("policy")
+                desc = audit_info.get("status_description")
+                self.log_console_only(f"[IG Post Copyright Poll] copyright_status = {cs}, policy = {policy}, desc = {desc}", level=logging.INFO)
+                if cs == "BLOCKED":
+                    self.send_message(f"🚫 Instagram post blocked for copyright after publish. Deleting post...", level=logging.ERROR)
+                    delete_url = f"{self.INSTAGRAM_API_BASE}/{media_id}"
+                    delete_params = {"access_token": page_token}
+                    del_res = self.session.delete(delete_url, params=delete_params)
+                    if del_res.status_code == 200:
+                        self.send_message(f"✅ Instagram post deleted due to copyright block.", level=logging.INFO)
+                    else:
+                        self.send_message(f"❌ Failed to delete Instagram post after copyright block: {del_res.text}", level=logging.ERROR)
+                    return False
+                elif cs == "MUTED_AUDIO":
+                    self.send_message(f"⚠️ Instagram post has muted audio due to copyright.", level=logging.WARNING)
+                    return True
+                elif cs:
+                    return True
                 else:
-                    self.send_message(f"❌ Failed to delete Instagram post after copyright block: {del_res.text}", level=logging.ERROR)
-                return False
-            elif cs == "MUTED_AUDIO":
-                self.send_message(f"⚠️ Instagram post has muted audio due to copyright.", level=logging.WARNING)
-                return True
-            elif cs:
-                return True
-            time.sleep(delay)
-            delay = min(delay * 1.5, 30)
-        self.send_message("⚠️ IG post copyright/audit info not available after 5 minutes", level=logging.WARNING)
+                    self.send_message(f"ℹ️ Instagram post audit_info: {audit_info}", level=logging.INFO)
+                    return True
+            elif "ShadowIGMedia" in audit_res.text:
+                self.log_console_only(f"⏳ Attempt {attempt+1}: IGMedia not ready (ShadowIGMedia). Retrying in 5s...", level=logging.INFO)
+                time.sleep(5)
+            else:
+                self.log_console_only(f"❌ Unexpected error on audit_info: {audit_res.text}", level=logging.INFO)
+                self.send_message(f"❌ Unexpected error on audit_info: {audit_res.text}", level=logging.ERROR)
+                break
+        self.send_message("⚠️ IG post copyright/audit info not available after retries", level=logging.WARNING)
         return None
 
     def poll_facebook_processing(self, video_id, page_token, max_wait_seconds=300, initial_delay=5):
