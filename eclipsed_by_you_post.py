@@ -1,4 +1,4 @@
-# File: INK_WISPS_post.py
+# File: eclipsed_by_you_post.py
 import os
 import time
 import json
