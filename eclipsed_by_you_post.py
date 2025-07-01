@@ -1061,11 +1061,12 @@ class DropboxToInstagramUploader:
             return False
 
     def poll_ig_audit(self, creation_id, page_token, attempts=24, delay=5):
-        """Poll Instagram audit_info for copyright status before publishing. Returns True (pass), False (blocked), or None (timeout)."""
-        url = f"https://graph.facebook.com/v19.0/{creation_id}?fields=status_code,audit_info&access_token={page_token}"
+        """Poll Instagram status_code until FINISHED, then fetch audit_info. Returns True (pass), False (blocked), or None (timeout)."""
+        base_url = f"https://graph.facebook.com/v19.0/{creation_id}"
         for i in range(attempts):
             try:
-                r = self.session.get(url).json()
+                # First poll only for status_code
+                r = self.session.get(f"{base_url}?fields=status_code&access_token={page_token}").json()
             except Exception as e:
                 self.send_message(f"⚠️ IG audit polling error (attempt {i+1}): {e}")
                 time.sleep(delay)
@@ -1076,23 +1077,26 @@ class DropboxToInstagramUploader:
                 return False
 
             status = r.get("status_code")
-            audit_info = r.get("audit_info", {})
-
-            self.log_console_only(f"[IG Polling] Attempt {i+1}: status_code={status}, copyright_status={audit_info.get('copyright_status')}")
+            self.log_console_only(f"[IG Polling] Attempt {i+1}: status_code={status}")
 
             if status == "FINISHED":
-                copyright_status = audit_info.get("copyright_status")
-                if copyright_status is None:
-                    time.sleep(delay)
-                    continue
-                if copyright_status == "BLOCKED":
-                    self.send_message("🚫 Instagram audit blocked the video.")
+                # Now safely request audit_info
+                try:
+                    audit_response = self.session.get(f"{base_url}?fields=audit_info&access_token={page_token}").json()
+                    audit_info = audit_response.get("audit_info", {})
+                    copyright_status = audit_info.get("copyright_status")
+                    self.log_console_only(f"[IG Polling] Audit finished: copyright_status={copyright_status}")
+                    if copyright_status == "BLOCKED":
+                        self.send_message("🚫 Instagram audit blocked the video. Skipping Facebook upload.")
+                        return False
+                    return True
+                except Exception as e:
+                    self.send_message(f"⚠️ IG audit_info fetch failed: {e}")
                     return False
-                return True
 
             time.sleep(delay)
 
-        self.send_message("⚠️ IG audit polling timed out — treating as temporary. If this happens repeatedly, check your token scopes and App Review status.")
+        self.send_message("⚠️ IG audit polling timed out — video never reached FINISHED. If this happens repeatedly, check your token scopes and App Review status.")
         return None
 
     def poll_fb_audit(self, video_id, page_token, attempts=24, delay=5):
