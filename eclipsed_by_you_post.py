@@ -1040,94 +1040,124 @@ class DropboxToInstagramUploader:
             self.send_message(f"❌ Exception verifying Facebook video post: {e}", level=logging.ERROR)
             return False
 
-    def poll_instagram_copyright(self, creation_id, page_token, name, max_wait_seconds=120, poll_interval=5):
-        """Poll Instagram for copyright/audit info up to max_wait_seconds."""
+    def poll_instagram_copyright(self, creation_id, page_token, name, max_wait_seconds=120, initial_delay=5):
+        """Poll Instagram for copyright/audit info up to max_wait_seconds, only after status_code == FINISHED."""
+        import math
         start_time = time.time()
         attempt = 0
+        delay = initial_delay
         while time.time() - start_time < max_wait_seconds:
             attempt += 1
-            url = f"{self.INSTAGRAM_API_BASE}/{creation_id}"
-            params = {
-                "fields": "status_code,audit_info",
-                "access_token": page_token
-            }
-            res = self.session.get(url, params=params)
-            if res.status_code != 200:
-                self.log_console_only(f"[IG Copyright Poll] API error {res.status_code}, retrying...", level=logging.INFO)
-                time.sleep(poll_interval)
+            status_url = f"{self.INSTAGRAM_API_BASE}/{creation_id}?fields=status_code&access_token={page_token}"
+            status_res = self.session.get(status_url)
+            if status_res.status_code != 200:
+                self.log_console_only(f"[IG Copyright Poll] API error {status_res.status_code}: {status_res.text}", level=logging.INFO)
+                time.sleep(delay)
+                delay = min(delay * 1.5, 30)  # exponential backoff, max 30s
                 continue
-            data = res.json()
-            audit_info = data.get("audit_info")
-            status = data.get("status_code")
+            status = status_res.json().get("status_code")
             self.log_console_only(f"[IG Copyright Poll] Attempt {attempt}: status_code={status}", level=logging.INFO)
-            if audit_info:
+            if status == "FINISHED":
+                # Now it's safe to check audit_info
+                audit_url = f"{self.INSTAGRAM_API_BASE}/{creation_id}?fields=audit_info&access_token={page_token}"
+                audit_res = self.session.get(audit_url)
+                if audit_res.status_code != 200:
+                    self.log_console_only(f"[IG Copyright Poll] audit_info error {audit_res.status_code}: {audit_res.text}", level=logging.INFO)
+                    time.sleep(delay)
+                    delay = min(delay * 1.5, 30)
+                    continue
+                audit_info = audit_res.json().get("audit_info", {})
+                cs = audit_info.get("copyright_status")
+                self.log_console_only(f"[IG Copyright Poll] copyright_status = {cs}", level=logging.INFO)
+                if cs == "BLOCKED":
+                    self.send_message("🚫 Instagram post BLOCKED due to copyright.", level=logging.ERROR)
+                    return False, "BLOCKED"
+                elif cs == "MUTED_AUDIO":
+                    self.send_message("⚠️ Instagram post has muted audio due to copyright.", level=logging.WARNING)
+                    return True, "MUTED_AUDIO"
+                else:
+                    return True, cs
+            else:
+                time.sleep(delay)
+                delay = min(delay * 1.5, 30)
+        self.send_message("⚠️ Timeout: IG media never became ready", level=logging.WARNING)
+        return False, None
+
+    def poll_facebook_copyright(self, video_id, page_token, max_wait_seconds=120, initial_delay=5):
+        """Poll Facebook for copyright/audit info up to max_wait_seconds, only after status == 'ready' or 'published'."""
+        import math
+        start_time = time.time()
+        attempt = 0
+        delay = initial_delay
+        while time.time() - start_time < max_wait_seconds:
+            attempt += 1
+            status_url = f"https://graph.facebook.com/{video_id}?fields=status&access_token={page_token}"
+            status_res = self.session.get(status_url)
+            if status_res.status_code != 200:
+                self.log_console_only(f"[FB Copyright Poll] API error {status_res.status_code}: {status_res.text}", level=logging.INFO)
+                time.sleep(delay)
+                delay = min(delay * 1.5, 30)
+                continue
+            status = status_res.json().get("status")
+            self.log_console_only(f"[FB Copyright Poll] Attempt {attempt}: status={status}", level=logging.INFO)
+            if status in ("ready", "published"):
+                audit_url = f"https://graph.facebook.com/{video_id}?fields=copyright_status,audit_info&access_token={page_token}"
+                audit_res = self.session.get(audit_url)
+                if audit_res.status_code != 200:
+                    self.log_console_only(f"[FB Copyright Poll] audit_info error {audit_res.status_code}: {audit_res.text}", level=logging.INFO)
+                    time.sleep(delay)
+                    delay = min(delay * 1.5, 30)
+                    continue
+                copyright_status = audit_res.json().get("copyright_status", "")
+                audit_info = audit_res.json().get("audit_info", {})
+                cs = copyright_status
                 audit_status = audit_info.get("status", "")
                 reason = audit_info.get("reason", "Unknown")
-                self.log_console_only(f"[IG Copyright Poll] audit_info.status={audit_status}, reason={reason}", level=logging.INFO)
-                self.send_message(f"[IG Copyright Poll] status: {audit_status}, reason: {reason}", level=logging.INFO)
-                return audit_status, reason
-            time.sleep(poll_interval)
-        self.send_message("⚠️ IG copyright/audit info not available after 2 minutes", level=logging.WARNING)
-        return None, None
+                self.log_console_only(f"[FB Copyright Poll] copyright_status = {cs}, audit_status = {audit_status}, reason = {reason}", level=logging.INFO)
+                if cs == "BLOCKED" or audit_status == "BLOCKED":
+                    self.send_message(f"🚫 Facebook video BLOCKED due to copyright. Reason: {reason}", level=logging.ERROR)
+                    return False, "BLOCKED"
+                elif cs == "MUTED_AUDIO" or audit_status == "MUTED_AUDIO":
+                    self.send_message(f"⚠️ Facebook video has muted audio due to copyright.", level=logging.WARNING)
+                    return True, "MUTED_AUDIO"
+                else:
+                    return True, cs
+            else:
+                time.sleep(delay)
+                delay = min(delay * 1.5, 30)
+        self.send_message("⚠️ Timeout: FB video never became ready", level=logging.WARNING)
+        return False, None
 
-    def poll_facebook_copyright(self, video_id, page_token, max_wait_seconds=120, poll_interval=5):
-        """Poll Facebook for copyright/audit info up to max_wait_seconds."""
+    def poll_instagram_post_copyright(self, media_id, page_token, name, max_wait_seconds=300, initial_delay=5):
+        """Poll Instagram post (media_id) for copyright/audit info after publishing. Only after status_code == FINISHED."""
+        import math
         start_time = time.time()
         attempt = 0
+        delay = initial_delay
         while time.time() - start_time < max_wait_seconds:
             attempt += 1
-            url = f"https://graph.facebook.com/{video_id}"
-            params = {
-                "fields": "id,copyright_status,audit_info",
-                "access_token": page_token
-            }
-            res = self.session.get(url, params=params)
-            if res.status_code != 200:
-                self.log_console_only(f"[FB Copyright Poll] API error {res.status_code}, retrying...", level=logging.INFO)
-                time.sleep(poll_interval)
+            status_url = f"{self.INSTAGRAM_API_BASE}/{media_id}?fields=status_code&access_token={page_token}"
+            status_res = self.session.get(status_url)
+            if status_res.status_code != 200:
+                self.log_console_only(f"[IG Post Copyright Poll] API error {status_res.status_code}: {status_res.text}", level=logging.INFO)
+                time.sleep(delay)
+                delay = min(delay * 1.5, 30)
                 continue
-            data = res.json()
-            copyright_status = data.get("copyright_status", "")
-            audit_info = data.get("audit_info")
-            self.log_console_only(f"[FB Copyright Poll] Attempt {attempt}: copyright_status={copyright_status}", level=logging.INFO)
-            if copyright_status or audit_info:
-                audit_status = audit_info.get("status", "") if audit_info else ""
-                reason = audit_info.get("reason", "Unknown") if audit_info else ""
-                self.log_console_only(f"[FB Copyright Poll] copyright_status={copyright_status}, audit_info.status={audit_status}, reason={reason}", level=logging.INFO)
-                self.send_message(f"[FB Copyright Poll] copyright_status: {copyright_status}, audit_status: {audit_status}, reason: {reason}", level=logging.INFO)
-                return copyright_status, audit_status, reason
-            time.sleep(poll_interval)
-        self.send_message("⚠️ FB copyright/audit info not available after 2 minutes", level=logging.WARNING)
-        return None, None, None
-
-    def poll_instagram_post_copyright(self, media_id, page_token, name, max_wait_seconds=300, poll_interval=5):
-        """Poll Instagram post (media_id) for copyright/audit info after publishing. If blocked, notify and delete."""
-        start_time = time.time()
-        attempt = 0
-        while time.time() - start_time < max_wait_seconds:
-            attempt += 1
-            url = f"{self.INSTAGRAM_API_BASE}/{media_id}"
-            params = {
-                "fields": "id,audit_info,status_code",
-                "access_token": page_token
-            }
-            res = self.session.get(url, params=params)
-            if res.status_code != 200:
-                self.log_console_only(f"[IG Post Copyright Poll] API error {res.status_code}, retrying...", level=logging.INFO)
-                time.sleep(poll_interval)
-                continue
-            data = res.json()
-            audit_info = data.get("audit_info")
-            status = data.get("status_code")
+            status = status_res.json().get("status_code")
             self.log_console_only(f"[IG Post Copyright Poll] Attempt {attempt}: status_code={status}", level=logging.INFO)
-            if audit_info:
-                audit_status = audit_info.get("status", "")
-                reason = audit_info.get("reason", "Unknown")
-                self.log_console_only(f"[IG Post Copyright Poll] audit_info.status={audit_status}, reason={reason}", level=logging.INFO)
-                self.send_message(f"[IG Post Copyright Poll] status: {audit_status}, reason: {reason}", level=logging.INFO)
-                if audit_status == "BLOCKED":
+            if status == "FINISHED":
+                audit_url = f"{self.INSTAGRAM_API_BASE}/{media_id}?fields=audit_info&access_token={page_token}"
+                audit_res = self.session.get(audit_url)
+                if audit_res.status_code != 200:
+                    self.log_console_only(f"[IG Post Copyright Poll] audit_info error {audit_res.status_code}: {audit_res.text}", level=logging.INFO)
+                    time.sleep(delay)
+                    delay = min(delay * 1.5, 30)
+                    continue
+                audit_info = audit_res.json().get("audit_info", {})
+                cs = audit_info.get("copyright_status")
+                self.log_console_only(f"[IG Post Copyright Poll] copyright_status = {cs}", level=logging.INFO)
+                if cs == "BLOCKED":
                     self.send_message(f"🚫 Instagram post blocked for copyright after publish. Deleting post...", level=logging.ERROR)
-                    # Delete the post via API
                     delete_url = f"{self.INSTAGRAM_API_BASE}/{media_id}"
                     delete_params = {"access_token": page_token}
                     del_res = self.session.delete(delete_url, params=delete_params)
@@ -1136,42 +1166,65 @@ class DropboxToInstagramUploader:
                     else:
                         self.send_message(f"❌ Failed to delete Instagram post after copyright block: {del_res.text}", level=logging.ERROR)
                     return
-            time.sleep(poll_interval)
+                elif cs == "MUTED_AUDIO":
+                    self.send_message(f"⚠️ Instagram post has muted audio due to copyright.", level=logging.WARNING)
+                    return
+                else:
+                    return
+            else:
+                time.sleep(delay)
+                delay = min(delay * 1.5, 30)
         self.send_message("⚠️ IG post copyright/audit info not available after 5 minutes", level=logging.WARNING)
 
-    def poll_facebook_post_copyright(self, video_id, page_token, max_wait_seconds=300, poll_interval=5):
-        """Poll Facebook video post for copyright/audit info after publishing. If blocked, notify and delete."""
+    def poll_facebook_post_copyright(self, video_id, page_token, max_wait_seconds=300, initial_delay=5):
+        """Poll Facebook video post for copyright/audit info after publishing. Only after status == 'ready' or 'published'."""
+        import math
         start_time = time.time()
         attempt = 0
+        delay = initial_delay
         while time.time() - start_time < max_wait_seconds:
             attempt += 1
-            url = f"https://graph.facebook.com/{video_id}"
-            params = {
-                "fields": "id,copyright_status,audit_info",
-                "access_token": page_token
-            }
-            res = self.session.get(url, params=params)
-            if res.status_code != 200:
-                self.log_console_only(f"[FB Post Copyright Poll] API error {res.status_code}, retrying...", level=logging.INFO)
-                time.sleep(poll_interval)
+            status_url = f"https://graph.facebook.com/{video_id}?fields=status&access_token={page_token}"
+            status_res = self.session.get(status_url)
+            if status_res.status_code != 200:
+                self.log_console_only(f"[FB Post Copyright Poll] API error {status_res.status_code}: {status_res.text}", level=logging.INFO)
+                time.sleep(delay)
+                delay = min(delay * 1.5, 30)
                 continue
-            data = res.json()
-            copyright_status = data.get("copyright_status", "")
-            audit_info = data.get("audit_info")
-            self.log_console_only(f"[FB Post Copyright Poll] Attempt {attempt}: copyright_status={copyright_status}", level=logging.INFO)
-            if copyright_status == "BLOCKED" or (audit_info and audit_info.get("status") == "BLOCKED"):
-                reason = audit_info.get("reason", "Unknown") if audit_info else "Unknown"
-                self.send_message(f"🚫 Facebook video post blocked for copyright after publish. Deleting post... Reason: {reason}", level=logging.ERROR)
-                # Delete the post via API
-                delete_url = f"https://graph.facebook.com/{video_id}"
-                delete_params = {"access_token": page_token}
-                del_res = self.session.delete(delete_url, params=delete_params)
-                if del_res.status_code == 200:
-                    self.send_message(f"✅ Facebook video post deleted due to copyright block.", level=logging.INFO)
+            status = status_res.json().get("status")
+            self.log_console_only(f"[FB Post Copyright Poll] Attempt {attempt}: status={status}", level=logging.INFO)
+            if status in ("ready", "published"):
+                audit_url = f"https://graph.facebook.com/{video_id}?fields=copyright_status,audit_info&access_token={page_token}"
+                audit_res = self.session.get(audit_url)
+                if audit_res.status_code != 200:
+                    self.log_console_only(f"[FB Post Copyright Poll] audit_info error {audit_res.status_code}: {audit_res.text}", level=logging.INFO)
+                    time.sleep(delay)
+                    delay = min(delay * 1.5, 30)
+                    continue
+                copyright_status = audit_res.json().get("copyright_status", "")
+                audit_info = audit_res.json().get("audit_info", {})
+                cs = copyright_status
+                audit_status = audit_info.get("status", "")
+                reason = audit_info.get("reason", "Unknown")
+                self.log_console_only(f"[FB Post Copyright Poll] copyright_status = {cs}, audit_status = {audit_status}, reason = {reason}", level=logging.INFO)
+                if cs == "BLOCKED" or audit_status == "BLOCKED":
+                    self.send_message(f"🚫 Facebook video post blocked for copyright after publish. Deleting post... Reason: {reason}", level=logging.ERROR)
+                    delete_url = f"https://graph.facebook.com/{video_id}"
+                    delete_params = {"access_token": page_token}
+                    del_res = self.session.delete(delete_url, params=delete_params)
+                    if del_res.status_code == 200:
+                        self.send_message(f"✅ Facebook video post deleted due to copyright block.", level=logging.INFO)
+                    else:
+                        self.send_message(f"❌ Failed to delete Facebook video post after copyright block: {del_res.text}", level=logging.ERROR)
+                    return
+                elif cs == "MUTED_AUDIO" or audit_status == "MUTED_AUDIO":
+                    self.send_message(f"⚠️ Facebook video has muted audio due to copyright.", level=logging.WARNING)
+                    return
                 else:
-                    self.send_message(f"❌ Failed to delete Facebook video post after copyright block: {del_res.text}", level=logging.ERROR)
-                return
-            time.sleep(poll_interval)
+                    return
+            else:
+                time.sleep(delay)
+                delay = min(delay * 1.5, 30)
         self.send_message("⚠️ FB post copyright/audit info not available after 5 minutes", level=logging.WARNING)
 
 if __name__ == "__main__":
