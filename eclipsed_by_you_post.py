@@ -291,25 +291,9 @@ class DropboxToInstagramUploader:
 
         if media_type == "REELS":
             self.log_console_only("⏳ Step 3: Processing video for Instagram...", level=logging.INFO)
-            # Explicit copyright/audit check after creation, before polling for publish
-            copyright_url = f"{self.INSTAGRAM_API_BASE}/{creation_id}"
-            copyright_params = {
-                "fields": "status_code,audit_info",
-                "access_token": page_token
-            }
-            copyright_res = self.session.get(copyright_url, params=copyright_params)
-            if copyright_res.status_code == 200:
-                copyright_data = copyright_res.json()
-                audit_info = copyright_data.get("audit_info")
-                if audit_info:
-                    audit_status = audit_info.get("status", "")
-                    reason = audit_info.get("reason", "Unknown")
-                    self.log_console_only(f"[IG Copyright Check] audit_info.status={audit_status}, reason={reason}", level=logging.INFO)
-                    self.send_message(f"[IG Copyright Check] status: {audit_status}, reason: {reason}", level=logging.INFO)
-                else:
-                    self.log_console_only("[IG Copyright Check] No audit_info present yet.", level=logging.INFO)
-            else:
-                self.log_console_only(f"[IG Copyright Check] API error {copyright_res.status_code}", level=logging.INFO)
+            # Dedicated copyright polling before audit polling/publishing
+            ig_copyright_status, ig_copyright_reason = self.poll_instagram_copyright(creation_id, page_token, name)
+            # Continue with normal audit polling and publishing logic
             processing_start = time.time()
             for attempt in range(self.INSTAGRAM_REEL_STATUS_RETRIES):
                 self.log_console_only(f"🔄 Processing attempt {attempt + 1}/{self.INSTAGRAM_REEL_STATUS_RETRIES}", level=logging.INFO)
@@ -389,7 +373,6 @@ class DropboxToInstagramUploader:
             # Do not attempt verification with creation_id, as it is invalid after publish
             return False, media_type, instagram_success, facebook_success
 
-
     def post_to_facebook_page(self, video_url, caption, page_token=None, instagram_media_id=None):
         """Publish the Reel video also to the Facebook Page."""
         if not self.fb_page_id:
@@ -453,32 +436,8 @@ class DropboxToInstagramUploader:
                 video_id = response_data.get("id", "Unknown")
                 self.send_message(f"✅ Facebook Page post published successfully!\n📘 Video ID: {video_id}\n📘 Page ID: {self.fb_page_id}")
                 
-                # Explicit copyright/audit check after Facebook upload, before verifying/publishing
-                if video_id:
-                    copyright_url = f"https://graph.facebook.com/{video_id}"
-                    copyright_params = {
-                        "fields": "id,copyright_status,audit_info",
-                        "access_token": page_token
-                    }
-                    copyright_res = self.session.get(copyright_url, params=copyright_params)
-                    if copyright_res.status_code == 200:
-                        copyright_data = copyright_res.json()
-                        copyright_status = copyright_data.get("copyright_status", "")
-                        audit_info = copyright_data.get("audit_info")
-                        if copyright_status:
-                            self.log_console_only(f"[FB Copyright Check] copyright_status={copyright_status}", level=logging.INFO)
-                            self.send_message(f"[FB Copyright Check] copyright_status: {copyright_status}", level=logging.INFO)
-                        if audit_info:
-                            audit_status = audit_info.get("status", "")
-                            reason = audit_info.get("reason", "Unknown")
-                            self.log_console_only(f"[FB Copyright Check] audit_info.status={audit_status}, reason={reason}", level=logging.INFO)
-                            self.send_message(f"[FB Copyright Check] status: {audit_status}, reason: {reason}", level=logging.INFO)
-                        if not copyright_status and not audit_info:
-                            self.log_console_only("[FB Copyright Check] No copyright_status or audit_info present yet.", level=logging.INFO)
-                    else:
-                        self.log_console_only(f"[FB Copyright Check] API error {copyright_res.status_code}", level=logging.INFO)
-                else:
-                    self.log_console_only("[FB Copyright Check] No video ID returned from Facebook upload.", level=logging.INFO)
+                # Dedicated copyright polling before verifying/reporting success
+                fb_copyright_status, fb_audit_status, fb_reason = self.poll_facebook_copyright(video_id, page_token)
                 
                 # Verify the video post is live
                 self.verify_facebook_post_by_video_id(video_id, page_token)
@@ -1102,6 +1061,66 @@ class DropboxToInstagramUploader:
         except Exception as e:
             self.send_message(f"❌ Exception verifying Facebook video post: {e}", level=logging.ERROR)
             return False
+
+    def poll_instagram_copyright(self, creation_id, page_token, name, max_wait_seconds=120, poll_interval=5):
+        """Poll Instagram for copyright/audit info up to max_wait_seconds."""
+        start_time = time.time()
+        attempt = 0
+        while time.time() - start_time < max_wait_seconds:
+            attempt += 1
+            url = f"{self.INSTAGRAM_API_BASE}/{creation_id}"
+            params = {
+                "fields": "status_code,audit_info",
+                "access_token": page_token
+            }
+            res = self.session.get(url, params=params)
+            if res.status_code != 200:
+                self.log_console_only(f"[IG Copyright Poll] API error {res.status_code}, retrying...", level=logging.INFO)
+                time.sleep(poll_interval)
+                continue
+            data = res.json()
+            audit_info = data.get("audit_info")
+            status = data.get("status_code")
+            self.log_console_only(f"[IG Copyright Poll] Attempt {attempt}: status_code={status}", level=logging.INFO)
+            if audit_info:
+                audit_status = audit_info.get("status", "")
+                reason = audit_info.get("reason", "Unknown")
+                self.log_console_only(f"[IG Copyright Poll] audit_info.status={audit_status}, reason={reason}", level=logging.INFO)
+                self.send_message(f"[IG Copyright Poll] status: {audit_status}, reason: {reason}", level=logging.INFO)
+                return audit_status, reason
+            time.sleep(poll_interval)
+        self.send_message("⚠️ IG copyright/audit info not available after 2 minutes", level=logging.WARNING)
+        return None, None
+
+    def poll_facebook_copyright(self, video_id, page_token, max_wait_seconds=120, poll_interval=5):
+        """Poll Facebook for copyright/audit info up to max_wait_seconds."""
+        start_time = time.time()
+        attempt = 0
+        while time.time() - start_time < max_wait_seconds:
+            attempt += 1
+            url = f"https://graph.facebook.com/{video_id}"
+            params = {
+                "fields": "id,copyright_status,audit_info",
+                "access_token": page_token
+            }
+            res = self.session.get(url, params=params)
+            if res.status_code != 200:
+                self.log_console_only(f"[FB Copyright Poll] API error {res.status_code}, retrying...", level=logging.INFO)
+                time.sleep(poll_interval)
+                continue
+            data = res.json()
+            copyright_status = data.get("copyright_status", "")
+            audit_info = data.get("audit_info")
+            self.log_console_only(f"[FB Copyright Poll] Attempt {attempt}: copyright_status={copyright_status}", level=logging.INFO)
+            if copyright_status or audit_info:
+                audit_status = audit_info.get("status", "") if audit_info else ""
+                reason = audit_info.get("reason", "Unknown") if audit_info else ""
+                self.log_console_only(f"[FB Copyright Poll] copyright_status={copyright_status}, audit_info.status={audit_status}, reason={reason}", level=logging.INFO)
+                self.send_message(f"[FB Copyright Poll] copyright_status: {copyright_status}, audit_status: {audit_status}, reason: {reason}", level=logging.INFO)
+                return copyright_status, audit_status, reason
+            time.sleep(poll_interval)
+        self.send_message("⚠️ FB copyright/audit info not available after 2 minutes", level=logging.WARNING)
+        return None, None, None
 
 if __name__ == "__main__":
     DropboxToInstagramUploader().run()
