@@ -1041,14 +1041,16 @@ class DropboxToInstagramUploader:
         self.send_message("⚠️ Timeout: IG media never became ready", level=logging.WARNING)
         return False
 
-    def poll_instagram_post_copyright(self, media_id, page_token, name, max_wait_seconds=300, initial_delay=5):
-        """Poll the published IG media_id for audit_info (copyright) after publishing, with delay to avoid ShadowIGMedia errors."""
+    def poll_instagram_post_copyright(self, media_id, page_token, name, max_attempts=6, initial_delay=10):
+        """Poll the published IG media_id for audit_info (copyright) after publishing, with exponential backoff and robust error handling."""
         import time
         fields = 'audit_info{copyright_status,policy,status_description}'
         url = f"{self.INSTAGRAM_API_BASE}/{media_id}?fields={fields}&access_token={page_token}"
-        # Wait 7 seconds after publish to avoid ShadowIGMedia
-        time.sleep(7)
-        for attempt in range(5):
+        delay = initial_delay
+        self.log_console_only(f"⏳ Waiting {delay}s after publish before polling audit_info...", level=logging.INFO)
+        time.sleep(delay)
+        for attempt in range(1, max_attempts + 1):
+            self.log_console_only(f"🔄 Polling audit_info attempt {attempt}/{max_attempts} (delay={delay}s)", level=logging.INFO)
             audit_res = self.session.get(url)
             if audit_res.status_code == 200:
                 audit_info = audit_res.json().get("audit_info", {})
@@ -1074,13 +1076,14 @@ class DropboxToInstagramUploader:
                 else:
                     self.send_message(f"ℹ️ Instagram post audit_info: {audit_info}", level=logging.INFO)
                     return True
-            elif "ShadowIGMedia" in audit_res.text:
-                self.log_console_only(f"⏳ Attempt {attempt+1}: IGMedia not ready (ShadowIGMedia). Retrying in 5s...", level=logging.INFO)
-                time.sleep(5)
+            elif audit_res.status_code == 400 or "ShadowIGMedia" in audit_res.text:
+                self.log_console_only(f"⏳ Attempt {attempt}: IGMedia not ready (status 400 or ShadowIGMedia). Retrying in {delay}s...", level=logging.INFO)
             else:
                 self.log_console_only(f"❌ Unexpected error on audit_info: {audit_res.text}", level=logging.INFO)
                 self.send_message(f"❌ Unexpected error on audit_info: {audit_res.text}", level=logging.ERROR)
                 break
+            time.sleep(delay)
+            delay = min(delay * 2, 120)  # Exponential backoff, max 2 minutes
         self.send_message("⚠️ IG post copyright/audit info not available after retries", level=logging.WARNING)
         return None
 
