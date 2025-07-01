@@ -291,10 +291,19 @@ class DropboxToInstagramUploader:
 
         # After media creation, before publishing, poll IG audit if REELS
         if media_type == "REELS":
-            # Poll IG copyright audit before publishing
-            audit_passed = self.poll_ig_audit(creation_id, page_token)
-            if not audit_passed:
+            audit_result = self.poll_ig_audit(creation_id, page_token)
+            if audit_result is False:
                 self.send_message("🚫 Instagram audit blocked the video. Skipping Facebook upload.")
+                # Only delete file if BLOCKED
+                try:
+                    dbx.files_delete_v2(file.path_lower)
+                    self.log_console_only(f"🗑️ Deleted file after IG BLOCKED: {file.name}")
+                except Exception as e:
+                    self.log_console_only(f"⚠️ Failed to delete file {file.name}: {e}", level=logging.WARNING)
+                return False, media_type, False, False
+            elif audit_result is None:
+                self.send_message("⏳ Instagram audit timed out. Will retry later. Not deleting file.")
+                # Do not delete file, do not proceed to Facebook
                 return False, media_type, False, False
 
         self.log_console_only("📤 Step 4: Publishing to Instagram...", level=logging.INFO)
@@ -332,12 +341,19 @@ class DropboxToInstagramUploader:
             if media_type == "REELS":
                 self.log_console_only("📘 Step 5: Starting Facebook Page upload...", level=logging.INFO)
                 facebook_success = self.post_to_facebook_page(temp_link, description, page_token, instagram_id)
-                # After Facebook upload, poll FB audit
                 if facebook_success and isinstance(facebook_success, str):
-                    # If post_to_facebook_page returns video_id, poll audit
-                    fb_audit_passed = self.poll_fb_audit(facebook_success, page_token)
-                    if not fb_audit_passed:
+                    fb_audit_result = self.poll_fb_audit(facebook_success, page_token)
+                    if fb_audit_result is False:
                         self.send_message("🚫 Facebook audit blocked the video.")
+                        # Only delete file if BLOCKED on FB (optional, or just log)
+                        # try:
+                        #     dbx.files_delete_v2(file.path_lower)
+                        #     self.log_console_only(f"🗑️ Deleted file after FB BLOCKED: {file.name}")
+                        # except Exception as e:
+                        #     self.log_console_only(f"⚠️ Failed to delete file {file.name}: {e}", level=logging.WARNING)
+                        facebook_success = False
+                    elif fb_audit_result is None:
+                        self.send_message("⏳ Facebook audit timed out. Will retry later. Not deleting file.")
                         facebook_success = False
             else:
                 facebook_success = True  # No Facebook post needed for images
@@ -1044,8 +1060,8 @@ class DropboxToInstagramUploader:
             self.send_message(f"❌ Exception verifying Facebook video post: {e}", level=logging.ERROR)
             return False
 
-    def poll_ig_audit(self, creation_id, page_token, attempts=12, delay=5):
-        """Poll Instagram audit_info for copyright status before publishing."""
+    def poll_ig_audit(self, creation_id, page_token, attempts=24, delay=5):
+        """Poll Instagram audit_info for copyright status before publishing. Returns True (pass), False (blocked), or None (timeout)."""
         url = f"https://graph.facebook.com/v19.0/{creation_id}?fields=status_code,audit_info&access_token={page_token}"
         for i in range(attempts):
             try:
@@ -1054,6 +1070,10 @@ class DropboxToInstagramUploader:
                 self.send_message(f"⚠️ IG audit polling error (attempt {i+1}): {e}")
                 time.sleep(delay)
                 continue
+
+            if 'error' in r:
+                self.send_message(f"⚠️ IG API error: {r['error'].get('message', str(r['error']))}")
+                return False
 
             status = r.get("status_code")
             audit_info = r.get("audit_info", {})
@@ -1072,11 +1092,11 @@ class DropboxToInstagramUploader:
 
             time.sleep(delay)
 
-        self.send_message("⚠️ IG audit polling timed out.")
-        return False
+        self.send_message("⚠️ IG audit polling timed out — treating as temporary. If this happens repeatedly, check your token scopes and App Review status.")
+        return None
 
-    def poll_fb_audit(self, video_id, page_token, attempts=12, delay=5):
-        """Poll Facebook audit_info for copyright status after upload."""
+    def poll_fb_audit(self, video_id, page_token, attempts=24, delay=5):
+        """Poll Facebook audit_info for copyright status after upload. Returns True (pass), False (blocked), or None (timeout)."""
         url = f"https://graph.facebook.com/v19.0/{video_id}?fields=status,audit_info&access_token={page_token}"
         for i in range(attempts):
             try:
@@ -1085,6 +1105,10 @@ class DropboxToInstagramUploader:
                 self.send_message(f"⚠️ FB audit polling error (attempt {i+1}): {e}")
                 time.sleep(delay)
                 continue
+
+            if 'error' in r:
+                self.send_message(f"⚠️ FB API error: {r['error'].get('message', str(r['error']))}")
+                return False
 
             status = r.get("status")
             audit_info = r.get("audit_info", {})
@@ -1103,8 +1127,8 @@ class DropboxToInstagramUploader:
 
             time.sleep(delay)
 
-        self.send_message("⚠️ FB audit polling timed out.")
-        return False
+        self.send_message("⚠️ FB audit polling timed out — treating as temporary. If this happens repeatedly, check your token scopes and App Review status.")
+        return None
 
 if __name__ == "__main__":
     DropboxToInstagramUploader().run()
