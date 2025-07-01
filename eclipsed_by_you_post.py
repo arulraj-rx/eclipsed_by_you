@@ -291,44 +291,85 @@ class DropboxToInstagramUploader:
 
         if media_type == "REELS":
             self.log_console_only("⏳ Step 3: Processing video for Instagram...", level=logging.INFO)
-            # Poll for processing only (no copyright check here)
-            if not self.poll_instagram_processing(creation_id, page_token):
-                return False, media_type
+            processing_start = time.time()
+            for attempt in range(self.INSTAGRAM_REEL_STATUS_RETRIES):
+                self.log_console_only(f"🔄 Processing attempt {attempt + 1}/{self.INSTAGRAM_REEL_STATUS_RETRIES}", level=logging.INFO)
+                
+                status_response = self.session.get(
+                    f"{self.INSTAGRAM_API_BASE}/{creation_id}?fields=status_code&access_token={page_token}"
+                )
+                
+                if status_response.status_code != 200:
+                    self.send_message(f"❌ Status check failed: {status_response.status_code}", level=logging.ERROR)
+                    return False
+                
+                status = status_response.json()
+                current_status = status.get("status_code", "UNKNOWN")
+                
+                self.log_console_only(f"📊 Current status: {current_status}", level=logging.INFO)
+                
+                if current_status == "FINISHED":
+                    processing_time = time.time() - processing_start
+                    self.log_console_only(f"✅ Instagram video processing completed in {processing_time:.2f} seconds!", level=logging.INFO)
+                    
+                    # Wait 8 seconds after FINISHED status before publishing (reduced from 15)
+                    self.log_console_only("⏳ Waiting 15 seconds before publishing...", level=logging.INFO)
+                    time.sleep(15)
+                    break
+                elif current_status == "ERROR":
+                    self.send_message(f"❌ Instagram processing failed: {name}\n📸 Status: ERROR", level=logging.ERROR)
+                    return False
+                
+                self.log_console_only(f"⏳ Waiting {self.INSTAGRAM_REEL_STATUS_WAIT_TIME} seconds before next check...", level=logging.INFO)
+                time.sleep(self.INSTAGRAM_REEL_STATUS_WAIT_TIME)
 
         self.log_console_only("📤 Step 4: Publishing to Instagram...", level=logging.INFO)
         publish_url = f"{self.INSTAGRAM_API_BASE}/{self.ig_id}/media_publish"
         publish_data = {"creation_id": creation_id, "access_token": page_token}
+        
         self.log_console_only(f"📡 Publishing to: {publish_url}", level=logging.INFO)
+        
         publish_start = time.time()
         pub = self.session.post(publish_url, data=publish_data)
         publish_time = time.time() - publish_start
+        
         self.log_console_only(f"⏱️ Publish request completed in {publish_time:.2f} seconds", level=logging.INFO)
         self.log_console_only(f"📊 Publish response status: {pub.status_code}", level=logging.INFO)
+        
+        # Track Instagram and Facebook results separately
         instagram_success = False
         facebook_success = False
+        
         if pub.status_code == 200:
             response_data = pub.json()
             instagram_id = response_data.get("id", "Unknown")
+            
             if not instagram_id:
                 self.send_message("⚠️ Instagram publish succeeded but no media ID returned", level=logging.WARNING)
                 instagram_success = False
             else:
                 self.send_message(f"✅ Instagram post published successfully!\n📸 Media ID: {instagram_id}\n📸 Account ID: {self.ig_id}\n📦 Files left: {total_files - 1}")
                 instagram_success = True
-                # Post-publish copyright polling (Meta 2025 guideline)
-                self.poll_instagram_post_copyright(instagram_id, page_token, name)
+                
+                # Verify the post is live using the published media_id (not creation_id)
                 self.verify_instagram_post_by_media_id(instagram_id, page_token)
+            
+            # Also post to Facebook Page if it's a REEL (using the same page token)
             if media_type == "REELS":
                 self.log_console_only("📘 Step 5: Starting Facebook Page upload...", level=logging.INFO)
                 facebook_success = self.post_to_facebook_page(temp_link, description, page_token, instagram_id)
             else:
-                facebook_success = True
+                facebook_success = True  # No Facebook post needed for images
+            
+            # Return success status for both platforms
             return True, media_type, instagram_success, facebook_success
         else:
             error_msg = pub.json().get("error", {}).get("message", "Unknown error")
             error_code = pub.json().get("error", {}).get("code", "N/A")
             self.send_message(f"❌ Instagram publish failed: {name}\n📸 Error: {error_msg}\n📸 Code: {error_code}\n📸 Status: {pub.status_code}", level=logging.ERROR)
+            # Do not attempt verification with creation_id, as it is invalid after publish
             return False, media_type, instagram_success, facebook_success
+
 
     def post_to_facebook_page(self, video_url, caption, page_token=None, instagram_media_id=None):
         """Publish the Reel video also to the Facebook Page."""
@@ -393,8 +434,7 @@ class DropboxToInstagramUploader:
                 video_id = response_data.get("id", "Unknown")
                 self.send_message(f"✅ Facebook Page post published successfully!\n📘 Video ID: {video_id}\n📘 Page ID: {self.fb_page_id}")
                 
-                # Post-publish copyright polling (Meta 2025 guideline)
-                self.poll_facebook_post_copyright(video_id, page_token)
+                # Verify the video post is live
                 self.verify_facebook_post_by_video_id(video_id, page_token)
                 return True
             else:
@@ -1016,138 +1056,6 @@ class DropboxToInstagramUploader:
         except Exception as e:
             self.send_message(f"❌ Exception verifying Facebook video post: {e}", level=logging.ERROR)
             return False
-
-    def poll_instagram_processing(self, creation_id, page_token, max_wait_seconds=300, initial_delay=5):
-        """Poll the creation_id for status_code until FINISHED. Returns True if finished, False if timeout."""
-        import time
-        start_time = time.time()
-        attempt = 0
-        delay = initial_delay
-        while time.time() - start_time < max_wait_seconds:
-            attempt += 1
-            status_url = f"{self.INSTAGRAM_API_BASE}/{creation_id}?fields=status_code&access_token={page_token}"
-            status_res = self.session.get(status_url)
-            if status_res.status_code != 200:
-                self.log_console_only(f"[IG Processing Poll] API error {status_res.status_code}: {status_res.text}", level=logging.INFO)
-                time.sleep(delay)
-                delay = min(delay * 1.5, 30)
-                continue
-            status = status_res.json().get("status_code")
-            self.log_console_only(f"[IG Processing Poll] Attempt {attempt}: status_code={status}", level=logging.INFO)
-            if status == "FINISHED":
-                return True
-            time.sleep(delay)
-            delay = min(delay * 1.5, 30)
-        self.send_message("⚠️ Timeout: IG media never became ready", level=logging.WARNING)
-        return False
-
-    def poll_instagram_post_copyright(self, media_id, page_token, name, max_attempts=6, initial_delay=10):
-        """Poll the published IG media_id for audit_info (copyright) after publishing, with exponential backoff and robust error handling."""
-        import time
-        fields = 'audit_info{copyright_status,policy,status_description}'
-        url = f"{self.INSTAGRAM_API_BASE}/{media_id}?fields={fields}&access_token={page_token}"
-        delay = initial_delay
-        self.log_console_only(f"⏳ Waiting {delay}s after publish before polling audit_info...", level=logging.INFO)
-        time.sleep(delay)
-        for attempt in range(1, max_attempts + 1):
-            self.log_console_only(f"🔄 Polling audit_info attempt {attempt}/{max_attempts} (delay={delay}s)", level=logging.INFO)
-            audit_res = self.session.get(url)
-            if audit_res.status_code == 200:
-                audit_info = audit_res.json().get("audit_info", {})
-                cs = audit_info.get("copyright_status")
-                policy = audit_info.get("policy")
-                desc = audit_info.get("status_description")
-                self.log_console_only(f"[IG Post Copyright Poll] copyright_status = {cs}, policy = {policy}, desc = {desc}", level=logging.INFO)
-                if cs == "BLOCKED":
-                    self.send_message(f"🚫 Instagram post blocked for copyright after publish. Deleting post...", level=logging.ERROR)
-                    delete_url = f"{self.INSTAGRAM_API_BASE}/{media_id}"
-                    delete_params = {"access_token": page_token}
-                    del_res = self.session.delete(delete_url, params=delete_params)
-                    if del_res.status_code == 200:
-                        self.send_message(f"✅ Instagram post deleted due to copyright block.", level=logging.INFO)
-                    else:
-                        self.send_message(f"❌ Failed to delete Instagram post after copyright block: {del_res.text}", level=logging.ERROR)
-                    return False
-                elif cs == "MUTED_AUDIO":
-                    self.send_message(f"⚠️ Instagram post has muted audio due to copyright.", level=logging.WARNING)
-                    return True
-                elif cs:
-                    return True
-                else:
-                    self.send_message(f"ℹ️ Instagram post audit_info: {audit_info}", level=logging.INFO)
-                    return True
-            elif audit_res.status_code == 400 or "ShadowIGMedia" in audit_res.text:
-                self.log_console_only(f"⏳ Attempt {attempt}: IGMedia not ready (status 400 or ShadowIGMedia). Retrying in {delay}s...", level=logging.INFO)
-            else:
-                self.log_console_only(f"❌ Unexpected error on audit_info: {audit_res.text}", level=logging.INFO)
-                self.send_message(f"❌ Unexpected error on audit_info: {audit_res.text}", level=logging.ERROR)
-                break
-            time.sleep(delay)
-            delay = min(delay * 2, 120)  # Exponential backoff, max 2 minutes
-        self.send_message("⚠️ IG post copyright/audit info not available after retries", level=logging.WARNING)
-        return None
-
-    def poll_facebook_processing(self, video_id, page_token, max_wait_seconds=300, initial_delay=5):
-        """Poll the video_id for status until 'published'. Returns True if published, False if timeout."""
-        import time
-        start_time = time.time()
-        attempt = 0
-        delay = initial_delay
-        while time.time() - start_time < max_wait_seconds:
-            attempt += 1
-            status_url = f"https://graph.facebook.com/{video_id}?fields=status&access_token={page_token}"
-            status_res = self.session.get(status_url)
-            if status_res.status_code != 200:
-                self.log_console_only(f"[FB Processing Poll] API error {status_res.status_code}: {status_res.text}", level=logging.INFO)
-                time.sleep(delay)
-                delay = min(delay * 1.5, 30)
-                continue
-            status = status_res.json().get("status")
-            self.log_console_only(f"[FB Processing Poll] Attempt {attempt}: status={status}", level=logging.INFO)
-            if status == "published":
-                return True
-            time.sleep(delay)
-            delay = min(delay * 1.5, 30)
-        self.send_message("⚠️ Timeout: FB video never became published", level=logging.WARNING)
-        return False
-
-    def poll_facebook_post_copyright(self, video_id, page_token, max_wait_seconds=300, initial_delay=5):
-        """Poll the published FB video_id for audit_info (copyright) after publishing."""
-        import time
-        start_time = time.time()
-        attempt = 0
-        delay = initial_delay
-        while time.time() - start_time < max_wait_seconds:
-            attempt += 1
-            audit_url = f"https://graph.facebook.com/{video_id}?fields=audit_info&access_token={page_token}"
-            audit_res = self.session.get(audit_url)
-            if audit_res.status_code != 200:
-                self.log_console_only(f"[FB Post Copyright Poll] audit_info error {audit_res.status_code}: {audit_res.text}", level=logging.INFO)
-                time.sleep(delay)
-                delay = min(delay * 1.5, 30)
-                continue
-            audit_info = audit_res.json().get("audit_info", {})
-            cs = audit_info.get("copyright_status")
-            self.log_console_only(f"[FB Post Copyright Poll] copyright_status = {cs}", level=logging.INFO)
-            if cs == "BLOCKED":
-                self.send_message(f"🚫 Facebook video post blocked for copyright after publish. Deleting post...", level=logging.ERROR)
-                delete_url = f"https://graph.facebook.com/{video_id}"
-                delete_params = {"access_token": page_token}
-                del_res = self.session.delete(delete_url, params=delete_params)
-                if del_res.status_code == 200:
-                    self.send_message(f"✅ Facebook video post deleted due to copyright block.", level=logging.INFO)
-                else:
-                    self.send_message(f"❌ Failed to delete Facebook video post after copyright block: {del_res.text}", level=logging.ERROR)
-                return False
-            elif cs == "MUTED_AUDIO":
-                self.send_message(f"⚠️ Facebook video has muted audio due to copyright.", level=logging.WARNING)
-                return True
-            elif cs:
-                return True
-            time.sleep(delay)
-            delay = min(delay * 1.5, 30)
-        self.send_message("⚠️ FB post copyright/audit info not available after 5 minutes", level=logging.WARNING)
-        return None
 
 if __name__ == "__main__":
     DropboxToInstagramUploader().run()
