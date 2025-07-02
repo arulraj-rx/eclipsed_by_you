@@ -1071,7 +1071,7 @@ accounts = [
         "DROPBOX_REFRESH_TOKEN": "DB_REFRESH_1",
         "DROPBOX_APP_KEY": "DB_KEY_1",
         "DROPBOX_APP_SECRET": "DB_SECRET_1",
-        "DROPBOX_FOLDER": "/account1",
+        "DROPBOX_FOLDER": "/inkwisp",
         "ACCOUNT_KEY": "account_1"
     },
     {
@@ -1080,7 +1080,7 @@ accounts = [
         "DROPBOX_REFRESH_TOKEN": "DB_REFRESH_2",
         "DROPBOX_APP_KEY": "DB_KEY_2",
         "DROPBOX_APP_SECRET": "DB_SECRET_2",
-        "DROPBOX_FOLDER": "/account2",
+        "DROPBOX_FOLDER": "/eclipsed_by_you",
         "ACCOUNT_KEY": "account_2"
     },
     {
@@ -1089,7 +1089,7 @@ accounts = [
         "DROPBOX_REFRESH_TOKEN": "DB_REFRESH_3",
         "DROPBOX_APP_KEY": "DB_KEY_3",
         "DROPBOX_APP_SECRET": "DB_SECRET_3",
-        "DROPBOX_FOLDER": "/account3",
+        "DROPBOX_FOLDER": "/ink_wisps",
         "ACCOUNT_KEY": "account_3"
     }
 ]
