@@ -1,92 +1,32 @@
 {
-  "account_1": {
+  "eclipsed_by_you": {
     "Monday": {
-      "caption": "🌌 Start your week with ink and wonder. #ink_wisps",
-      "description": "✨ New beginnings with #ink_wisps — follow us on Instagram and Facebook for weekly art drops!"
+      "caption": "Drop a 🔥 if this made your feed better.\n#eclipsed_by_you #NowPlaying #ForYou #reels #TrendingNow #explore #fyp #instagood",
+      "description": "Drop a 🔥 if this made your feed better.\n#eclipsed_by_you #fbreels #NowPlaying #ForYou #MustWatch #TrendingNow"
     },
     "Tuesday": {
-      "caption": "🎨 Tuesday tones — shades of creativity. #ink_wisps",
-      "description": "🖌️ Explore Tuesday’s colors with #ink_wisps. Watch, like, and share!"
+      "caption": "Seen this yet? You’re late if not!\n#eclipsed_by_you #NowPlaying #ForYou #reels #TrendingNow #explore #fyp #instagood",
+      "description": "Seen this yet? You’re late if not!\n#eclipsed_by_you #fbreels #NowPlaying #ForYou #MustWatch #TrendingNow"
     },
     "Wednesday": {
-      "caption": "🌿 Midweek musings in ink. #ink_wisps",
-      "description": "📖 What’s your midweek mood? Dive into the latest reel from #ink_wisps."
+      "caption": "Tag someone who needs to see this!\n#eclipsed_by_you #NowPlaying #ForYou #reels #TrendingNow #explore #fyp #instagood",
+      "description": "Tag someone who needs to see this!\n#eclipsed_by_you #fbreels #NowPlaying #ForYou #MustWatch #TrendingNow"
     },
     "Thursday": {
-      "caption": "🌀 Flow through your Thursday. #ink_wisps",
-      "description": "🎥 A moment of calm and color. Follow #ink_wisps for more."
+      "caption": "Which line hit hardest? 🔥 Comment below!\n#eclipsed_by_you #NowPlaying #ForYou #reels #TrendingNow #explore #fyp #instagood",
+      "description": "Which line hit hardest? 🔥 Comment below!\n#eclipsed_by_you #fbreels #NowPlaying #ForYou #MustWatch #TrendingNow"
     },
     "Friday": {
-      "caption": "🌟 Ink meets energy this Friday. #ink_wisps",
-      "description": "🔥 Fresh weekend drops from #ink_wisps — follow us to stay in the loop!"
+      "caption": "Feeling this? Share it forward. 🔁\n#eclipsed_by_you #NowPlaying #ForYou #reels #TrendingNow #explore #fyp #instagood",
+      "description": "Feeling this? Share it forward. 🔁\n#eclipsed_by_you #fbreels #NowPlaying #ForYou #MustWatch #TrendingNow"
     },
     "Saturday": {
-      "caption": "🌙 Soft Saturdays in ink. #ink_wisps",
-      "description": "🖼️ Let your weekend breathe — one reel at a time. #ink_wisps"
+      "caption": "Spot the moment that gave you goosebumps.\n#eclipsed_by_you #NowPlaying #ForYou #reels #TrendingNow #explore #fyp #instagood",
+      "description": "Spot the moment that gave you goosebumps.\n#eclipsed_by_you #fbreels #NowPlaying #ForYou #MustWatch #TrendingNow"
     },
     "Sunday": {
-      "caption": "🖤 Silent Sundays with strokes of ink. #ink_wisps",
-      "description": "☁️ Relax, reflect, and enjoy today’s drop. Follow #ink_wisps."
-    }
-  },
-  "account_2": {
-    "Monday": {
-      "caption": "🌌 Start your week with ink and wonder. #canvas_echo",
-      "description": "✨ New beginnings with #canvas_echo — follow us on Instagram and Facebook for weekly art drops!"
-    },
-    "Tuesday": {
-      "caption": "🎨 Tuesday tones — shades of creativity. #canvas_echo",
-      "description": "🖌️ Explore Tuesday’s colors with #canvas_echo. Watch, like, and share!"
-    },
-    "Wednesday": {
-      "caption": "🌿 Midweek musings in ink. #canvas_echo",
-      "description": "📖 What’s your midweek mood? Dive into the latest reel from #canvas_echo."
-    },
-    "Thursday": {
-      "caption": "🌀 Flow through your Thursday. #canvas_echo",
-      "description": "🎥 A moment of calm and color. Follow #canvas_echo for more."
-    },
-    "Friday": {
-      "caption": "🌟 Ink meets energy this Friday. #canvas_echo",
-      "description": "🔥 Fresh weekend drops from #canvas_echo — follow us to stay in the loop!"
-    },
-    "Saturday": {
-      "caption": "🌙 Soft Saturdays in ink. #canvas_echo",
-      "description": "🖼️ Let your weekend breathe — one reel at a time. #canvas_echo"
-    },
-    "Sunday": {
-      "caption": "🖤 Silent Sundays with strokes of ink. #canvas_echo",
-      "description": "☁️ Relax, reflect, and enjoy today’s drop. Follow #canvas_echo."
-    }
-  },
-  "account_3": {
-    "Monday": {
-      "caption": "🌌 Start your week with ink and wonder. #shade_script",
-      "description": "✨ New beginnings with #shade_script — follow us on Instagram and Facebook for weekly art drops!"
-    },
-    "Tuesday": {
-      "caption": "🎨 Tuesday tones — shades of creativity. #shade_script",
-      "description": "🖌️ Explore Tuesday’s colors with #shade_script. Watch, like, and share!"
-    },
-    "Wednesday": {
-      "caption": "🌿 Midweek musings in ink. #shade_script",
-      "description": "📖 What’s your midweek mood? Dive into the latest reel from #shade_script."
-    },
-    "Thursday": {
-      "caption": "🌀 Flow through your Thursday. #shade_script",
-      "description": "🎥 A moment of calm and color. Follow #shade_script for more."
-    },
-    "Friday": {
-      "caption": "🌟 Ink meets energy this Friday. #shade_script",
-      "description": "🔥 Fresh weekend drops from #shade_script — follow us to stay in the loop!"
-    },
-    "Saturday": {
-      "caption": "🌙 Soft Saturdays in ink. #shade_script",
-      "description": "🖼️ Let your weekend breathe — one reel at a time. #shade_script"
-    },
-    "Sunday": {
-      "caption": "🖤 Silent Sundays with strokes of ink. #shade_script",
-      "description": "☁️ Relax, reflect, and enjoy today’s drop. Follow #shade_script."
+      "caption": "This one’s a must-watch – don’t scroll past!\n#eclipsed_by_you #NowPlaying #ForYou #reels #TrendingNow #explore #fyp #instagood",
+      "description": "This one’s a must-watch – don’t scroll past!\n#eclipsed_by_you #fbreels #NowPlaying #ForYou #MustWatch #TrendingNow"
     }
   }
 }
