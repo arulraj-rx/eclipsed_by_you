@@ -1,5 +1,5 @@
 {
-  "ink_wisps": {
+  "account_1": {
     "Monday": {
       "caption": "🌌 Start your week with ink and wonder. #ink_wisps",
       "description": "✨ New beginnings with #ink_wisps — follow us on Instagram and Facebook for weekly art drops!"
@@ -27,6 +27,66 @@
     "Sunday": {
       "caption": "🖤 Silent Sundays with strokes of ink. #ink_wisps",
       "description": "☁️ Relax, reflect, and enjoy today’s drop. Follow #ink_wisps."
+    }
+  },
+  "account_2": {
+    "Monday": {
+      "caption": "🌌 Start your week with ink and wonder. #canvas_echo",
+      "description": "✨ New beginnings with #canvas_echo — follow us on Instagram and Facebook for weekly art drops!"
+    },
+    "Tuesday": {
+      "caption": "🎨 Tuesday tones — shades of creativity. #canvas_echo",
+      "description": "🖌️ Explore Tuesday’s colors with #canvas_echo. Watch, like, and share!"
+    },
+    "Wednesday": {
+      "caption": "🌿 Midweek musings in ink. #canvas_echo",
+      "description": "📖 What’s your midweek mood? Dive into the latest reel from #canvas_echo."
+    },
+    "Thursday": {
+      "caption": "🌀 Flow through your Thursday. #canvas_echo",
+      "description": "🎥 A moment of calm and color. Follow #canvas_echo for more."
+    },
+    "Friday": {
+      "caption": "🌟 Ink meets energy this Friday. #canvas_echo",
+      "description": "🔥 Fresh weekend drops from #canvas_echo — follow us to stay in the loop!"
+    },
+    "Saturday": {
+      "caption": "🌙 Soft Saturdays in ink. #canvas_echo",
+      "description": "🖼️ Let your weekend breathe — one reel at a time. #canvas_echo"
+    },
+    "Sunday": {
+      "caption": "🖤 Silent Sundays with strokes of ink. #canvas_echo",
+      "description": "☁️ Relax, reflect, and enjoy today’s drop. Follow #canvas_echo."
+    }
+  },
+  "account_3": {
+    "Monday": {
+      "caption": "🌌 Start your week with ink and wonder. #shade_script",
+      "description": "✨ New beginnings with #shade_script — follow us on Instagram and Facebook for weekly art drops!"
+    },
+    "Tuesday": {
+      "caption": "🎨 Tuesday tones — shades of creativity. #shade_script",
+      "description": "🖌️ Explore Tuesday’s colors with #shade_script. Watch, like, and share!"
+    },
+    "Wednesday": {
+      "caption": "🌿 Midweek musings in ink. #shade_script",
+      "description": "📖 What’s your midweek mood? Dive into the latest reel from #shade_script."
+    },
+    "Thursday": {
+      "caption": "🌀 Flow through your Thursday. #shade_script",
+      "description": "🎥 A moment of calm and color. Follow #shade_script for more."
+    },
+    "Friday": {
+      "caption": "🌟 Ink meets energy this Friday. #shade_script",
+      "description": "🔥 Fresh weekend drops from #shade_script — follow us to stay in the loop!"
+    },
+    "Saturday": {
+      "caption": "🌙 Soft Saturdays in ink. #shade_script",
+      "description": "🖼️ Let your weekend breathe — one reel at a time. #shade_script"
+    },
+    "Sunday": {
+      "caption": "🖤 Silent Sundays with strokes of ink. #shade_script",
+      "description": "☁️ Relax, reflect, and enjoy today’s drop. Follow #shade_script."
     }
   }
 }
