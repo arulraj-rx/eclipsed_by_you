@@ -31,6 +31,10 @@ class DropboxToInstagramUploader:
 
         # Secrets from GitHub environment
         self.meta_token = os.getenv("META_TOKEN")
+        if not self.meta_token:
+            self.logger.error("META_TOKEN environment variable is not set or is empty!")
+        else:
+            self.logger.info(f"META_TOKEN loaded: {self.meta_token[:8]}... (length: {len(self.meta_token)})")
         self.ig_id = os.getenv("IG_ID")
         self.fb_page_id = os.getenv("FB_PAGE_ID")
         
@@ -591,12 +595,15 @@ class DropboxToInstagramUploader:
         """Check Meta token expiry and send Telegram notification."""
         try:
             self.log_console_only("🔍 Checking token expiry...", level=logging.INFO)
+            if not self.meta_token:
+                self.send_message("❌ META_TOKEN is not set! Aborting token check.", level=logging.ERROR)
+                return False
             url = "https://graph.facebook.com/debug_token"
             params = {
                 "input_token": self.meta_token,
                 "access_token": self.meta_token
             }
-            
+            self.log_console_only(f"[DEBUG] Using META_TOKEN: {self.meta_token[:8]}... (length: {len(self.meta_token)})", level=logging.INFO)
             res = self.session.get(url, params=params)
             data = res.json()
             
