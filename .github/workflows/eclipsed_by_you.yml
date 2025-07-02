@@ -1,4 +1,4 @@
-name: 📤 Auto Post to Instagram & Facebook
+name: 📤 Instagram & Facebook ecplised_by_you
 
 on:
   workflow_dispatch:  # Manual run button
