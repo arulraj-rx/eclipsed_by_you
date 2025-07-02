@@ -1057,5 +1057,61 @@ class DropboxToInstagramUploader:
             self.send_message(f"❌ Exception verifying Facebook video post: {e}", level=logging.ERROR)
             return False
 
+# === Multi-Account Runner Logic (Single META_TOKEN for all accounts) ===
+# To use, set __run_multi_account__ = True below.
+
+__run_multi_account__ = True  # Set to True to enable multi-account mode
+
+META_TOKEN_MULTIACC = "YOUR_LONG_LIVED_META_TOKEN"  # Set your single Meta token here for multi-account
+
+accounts = [
+    {
+        "IG_ID": "IG_ID_1",
+        "FB_PAGE_ID": "FB_PAGE_ID_1",
+        "DROPBOX_REFRESH_TOKEN": "DB_REFRESH_1",
+        "DROPBOX_APP_KEY": "DB_KEY_1",
+        "DROPBOX_APP_SECRET": "DB_SECRET_1",
+        "DROPBOX_FOLDER": "/account1",
+        "ACCOUNT_KEY": "account_1"
+    },
+    {
+        "IG_ID": "IG_ID_2",
+        "FB_PAGE_ID": "FB_PAGE_ID_2",
+        "DROPBOX_REFRESH_TOKEN": "DB_REFRESH_2",
+        "DROPBOX_APP_KEY": "DB_KEY_2",
+        "DROPBOX_APP_SECRET": "DB_SECRET_2",
+        "DROPBOX_FOLDER": "/account2",
+        "ACCOUNT_KEY": "account_2"
+    },
+    {
+        "IG_ID": "IG_ID_3",
+        "FB_PAGE_ID": "FB_PAGE_ID_3",
+        "DROPBOX_REFRESH_TOKEN": "DB_REFRESH_3",
+        "DROPBOX_APP_KEY": "DB_KEY_3",
+        "DROPBOX_APP_SECRET": "DB_SECRET_3",
+        "DROPBOX_FOLDER": "/account3",
+        "ACCOUNT_KEY": "account_3"
+    }
+]
+
+def run_for_all_accounts(accounts):
+    os.environ["META_TOKEN_MULTIACC"] = META_TOKEN_MULTIACC  # Set once for all accounts in multi-account mode
+    for i, acc in enumerate(accounts, 1):
+        print(f"\n=== Running for Account {i} ===\n")
+        os.environ["IG_ID"] = acc["IG_ID"]
+        os.environ["FB_PAGE_ID"] = acc["FB_PAGE_ID"]
+        os.environ["DROPBOX_REFRESH_TOKEN"] = acc["DROPBOX_REFRESH_TOKEN"]
+        os.environ["DROPBOX_APP_KEY"] = acc["DROPBOX_APP_KEY"]
+        os.environ["DROPBOX_APP_SECRET"] = acc["DROPBOX_APP_SECRET"]
+        # Patch: Use META_TOKEN_MULTIACC for uploader
+        os.environ["META_TOKEN"] = META_TOKEN_MULTIACC
+        uploader = DropboxToInstagramUploader()
+        uploader.dropbox_folder = acc["DROPBOX_FOLDER"]
+        uploader.account_key = acc["ACCOUNT_KEY"]  # Needed for correct config.json section
+        uploader.run()
+
 if __name__ == "__main__":
-    DropboxToInstagramUploader().run()
+    if __run_multi_account__:
+        run_for_all_accounts(accounts)
+    else:
+        DropboxToInstagramUploader().run()
