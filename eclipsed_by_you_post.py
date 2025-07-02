@@ -31,10 +31,6 @@ class DropboxToInstagramUploader:
 
         # Secrets from GitHub environment
         self.meta_token = os.getenv("META_TOKEN")
-        if not self.meta_token:
-            self.logger.error("META_TOKEN environment variable is not set or is empty!")
-        else:
-            self.logger.info(f"META_TOKEN loaded: {self.meta_token[:8]}... (length: {len(self.meta_token)})")
         self.ig_id = os.getenv("IG_ID")
         self.fb_page_id = os.getenv("FB_PAGE_ID")
         
@@ -595,15 +591,12 @@ class DropboxToInstagramUploader:
         """Check Meta token expiry and send Telegram notification."""
         try:
             self.log_console_only("🔍 Checking token expiry...", level=logging.INFO)
-            if not self.meta_token:
-                self.send_message("❌ META_TOKEN is not set! Aborting token check.", level=logging.ERROR)
-                return False
             url = "https://graph.facebook.com/debug_token"
             params = {
                 "input_token": self.meta_token,
                 "access_token": self.meta_token
             }
-            self.log_console_only(f"[DEBUG] Using META_TOKEN: {self.meta_token[:8]}... (length: {len(self.meta_token)})", level=logging.INFO)
+            
             res = self.session.get(url, params=params)
             data = res.json()
             
@@ -1064,61 +1057,5 @@ class DropboxToInstagramUploader:
             self.send_message(f"❌ Exception verifying Facebook video post: {e}", level=logging.ERROR)
             return False
 
-# === Multi-Account Runner Logic (Single META_TOKEN for all accounts) ===
-# To use, set __run_multi_account__ = True below.
-
-__run_multi_account__ = True  # Set to True to enable multi-account mode
-
-META_TOKEN_MULTIACC = "YOUR_LONG_LIVED_META_TOKEN"  # Set your single Meta token here for multi-account
-
-accounts = [
-    {
-        "IG_ID": "IG_ID_1",
-        "FB_PAGE_ID": "FB_PAGE_ID_1",
-        "DROPBOX_REFRESH_TOKEN": "DB_REFRESH_1",
-        "DROPBOX_APP_KEY": "DB_KEY_1",
-        "DROPBOX_APP_SECRET": "DB_SECRET_1",
-        "DROPBOX_FOLDER": "/inkwisp",
-        "ACCOUNT_KEY": "account_1"
-    },
-    {
-        "IG_ID": "IG_ID_2",
-        "FB_PAGE_ID": "FB_PAGE_ID_2",
-        "DROPBOX_REFRESH_TOKEN": "DB_REFRESH_2",
-        "DROPBOX_APP_KEY": "DB_KEY_2",
-        "DROPBOX_APP_SECRET": "DB_SECRET_2",
-        "DROPBOX_FOLDER": "/eclipsed_by_you",
-        "ACCOUNT_KEY": "account_2"
-    },
-    {
-        "IG_ID": "IG_ID_3",
-        "FB_PAGE_ID": "FB_PAGE_ID_3",
-        "DROPBOX_REFRESH_TOKEN": "DB_REFRESH_3",
-        "DROPBOX_APP_KEY": "DB_KEY_3",
-        "DROPBOX_APP_SECRET": "DB_SECRET_3",
-        "DROPBOX_FOLDER": "/ink_wisps",
-        "ACCOUNT_KEY": "account_3"
-    }
-]
-
-def run_for_all_accounts(accounts):
-    os.environ["META_TOKEN_MULTIACC"] = META_TOKEN_MULTIACC  # Set once for all accounts in multi-account mode
-    for i, acc in enumerate(accounts, 1):
-        print(f"\n=== Running for Account {i} ===\n")
-        os.environ["IG_ID"] = acc["IG_ID"]
-        os.environ["FB_PAGE_ID"] = acc["FB_PAGE_ID"]
-        os.environ["DROPBOX_REFRESH_TOKEN"] = acc["DROPBOX_REFRESH_TOKEN"]
-        os.environ["DROPBOX_APP_KEY"] = acc["DROPBOX_APP_KEY"]
-        os.environ["DROPBOX_APP_SECRET"] = acc["DROPBOX_APP_SECRET"]
-        # Patch: Use META_TOKEN_MULTIACC for uploader
-        os.environ["META_TOKEN"] = META_TOKEN_MULTIACC
-        uploader = DropboxToInstagramUploader()
-        uploader.dropbox_folder = acc["DROPBOX_FOLDER"]
-        uploader.account_key = acc["ACCOUNT_KEY"]  # Needed for correct config.json section
-        uploader.run()
-
 if __name__ == "__main__":
-    if __run_multi_account__:
-        run_for_all_accounts(accounts)
-    else:
-        DropboxToInstagramUploader().run()
+    DropboxToInstagramUploader().run()
