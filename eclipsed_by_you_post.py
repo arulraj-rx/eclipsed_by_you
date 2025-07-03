@@ -263,7 +263,7 @@ class DropboxToInstagramUploader:
         }
 
         if media_type == "REELS":
-            data.update({"media_type": "REELS", "video_url": temp_link, "share_to_feed": "false"})
+            data.update({"media_type": "REELS", "video_url": temp_link, "share_to_feed": "true"})
         else:
             data["image_url"] = temp_link
 
@@ -375,12 +375,18 @@ class DropboxToInstagramUploader:
         clip = VideoFileClip(video_path)
         width, height = clip.size
         aspect_ratio = width / height
+        duration = clip.duration
+        self.log_console_only(f"🎬 Video duration: {duration:.2f}s", level=logging.INFO)
+        if duration < 3 or duration > 90:
+            self.send_message(f'❌ Video duration {duration:.2f}s not supported for Reels (must be 3–90s).', level=logging.ERROR)
+            return False
         return 0.5625 <= aspect_ratio <= 1.7778
 
     def post_to_facebook_page(self, video_url, caption, page_token=None, instagram_media_id=None, as_reel=True):
         """Publish the video to the Facebook Page as a Reel or regular video."""
         import tempfile
         import shutil
+        import requests
         if not self.fb_page_id:
             self.send_message("⚠️ Facebook Page ID not configured, skipping Facebook post", level=logging.WARNING)
             return False
@@ -393,73 +399,61 @@ class DropboxToInstagramUploader:
         else:
             self.log_console_only("🔐 Using shared Facebook Page Access Token for Facebook upload", level=logging.INFO)
         if as_reel:
-            self.log_console_only("📘 Starting Facebook Page upload (Reels API)...", level=logging.INFO)
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
+            self.log_console_only("📘 Starting Facebook Page upload (Reels API, hosted file)...", level=logging.INFO)
+            # Try to check aspect ratio and duration using moviepy (download to temp file for analysis only)
             try:
-                with self.session.get(video_url, stream=True) as r:
+                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
+                with requests.get(video_url, stream=True) as r:
                     r.raise_for_status()
                     for chunk in r.iter_content(chunk_size=8192):
                         temp_file.write(chunk)
                 temp_file.close()
-                # Aspect ratio check
                 if not self.is_supported_aspect_ratio(temp_file.name):
-                    self.send_message("❌ Video aspect ratio not supported for Facebook Reels. Skipping upload.", level=logging.ERROR)
+                    self.send_message("❌ Video aspect ratio or duration not supported for Facebook Reels. Skipping upload.", level=logging.ERROR)
                     os.unlink(temp_file.name)
                     return False
-                file_size = os.path.getsize(temp_file.name)
-                # 1. Start upload session
-                start_url = f"https://graph.facebook.com/v23.0/{self.fb_page_id}/video_reels"
-                start_data = {"upload_phase": "start", "access_token": page_token}
-                start_res = self.session.post(start_url, data=start_data)
-                if start_res.status_code != 200:
-                    self.send_message(f"❌ Failed to start Facebook Reels upload session: {start_res.text}", level=logging.ERROR)
-                    os.unlink(temp_file.name)
-                    return False
-                video_id = start_res.json().get("video_id")
-                upload_url = start_res.json().get("upload_url")
-                if not video_id or not upload_url:
-                    self.send_message(f"❌ No video_id or upload_url returned: {start_res.text}", level=logging.ERROR)
-                    os.unlink(temp_file.name)
-                    return False
-                # 2. Upload video
-                with open(temp_file.name, "rb") as f:
-                    headers = {
-                        "Authorization": f"OAuth {page_token}",
-                        "offset": "0",
-                        "file_size": str(file_size)
-                    }
-                    upload_res = self.session.post(upload_url, headers=headers, data=f)
-                    if upload_res.status_code != 200:
-                        self.send_message(f"❌ Facebook Reels video upload failed: {upload_res.text}", level=logging.ERROR)
-                        os.unlink(temp_file.name)
-                        return False
-                # 3. Finish and publish
-                finish_data = {
-                    "upload_phase": "finish",
-                    "access_token": page_token,
-                    "video_id": video_id,
-                    "description": caption,
-                    "video_state": "PUBLISHED"
-                }
-                finish_res = self.session.post(start_url, data=finish_data)
                 os.unlink(temp_file.name)
-                if finish_res.status_code == 200:
-                    response_data = finish_res.json()
-                    fb_video_id = response_data.get("id", video_id)
-                    self.send_message(f"✅ Facebook Reel published successfully!\n📘 Video ID: {fb_video_id}\n📘 Page ID: {self.fb_page_id}")
-                    self.verify_facebook_post_by_video_id(fb_video_id, page_token)
-                    return True
-                else:
-                    self.send_message(f"❌ Facebook Reels publish failed: {finish_res.text}", level=logging.ERROR)
-                    return False
             except Exception as e:
-                self.send_message(f"❌ Facebook Reels upload exception:\n📘 Error: {str(e)}", level=logging.ERROR)
+                self.send_message(f"⚠️ Could not check video aspect ratio/duration: {e}. Proceeding with upload.", level=logging.WARNING)
+            # 1. Start upload session
+            start_url = f"https://graph.facebook.com/v23.0/{self.fb_page_id}/video_reels"
+            start_data = {"upload_phase": "start", "access_token": page_token}
+            start_res = self.session.post(start_url, data=start_data)
+            if start_res.status_code != 200:
+                self.send_message(f"❌ Failed to start Facebook Reels upload session: {start_res.text}", level=logging.ERROR)
                 return False
-            finally:
-                try:
-                    os.unlink(temp_file.name)
-                except:
-                    pass
+            video_id = start_res.json().get("video_id")
+            upload_url = start_res.json().get("upload_url")
+            if not video_id or not upload_url:
+                self.send_message(f"❌ No video_id or upload_url returned: {start_res.text}", level=logging.ERROR)
+                return False
+            # 2. Upload video using hosted file (Dropbox temp link)
+            headers = {
+                "Authorization": f"OAuth {page_token}",
+                "file_url": video_url
+            }
+            upload_res = self.session.post(upload_url, headers=headers)
+            if upload_res.status_code != 200:
+                self.send_message(f"❌ Facebook Reels video upload (hosted file) failed: {upload_res.text}", level=logging.ERROR)
+                return False
+            # 3. Finish and publish
+            finish_data = {
+                "upload_phase": "finish",
+                "access_token": page_token,
+                "video_id": video_id,
+                "description": caption,
+                "video_state": "PUBLISHED"
+            }
+            finish_res = self.session.post(start_url, data=finish_data)
+            if finish_res.status_code == 200:
+                response_data = finish_res.json()
+                fb_video_id = response_data.get("id", video_id)
+                self.send_message(f"✅ Facebook Reel published successfully!\n📘 Video ID: {fb_video_id}\n📘 Page ID: {self.fb_page_id}")
+                self.verify_facebook_post_by_video_id(fb_video_id, page_token)
+                return True
+            else:
+                self.send_message(f"❌ Facebook Reels publish failed: {finish_res.text}", level=logging.ERROR)
+                return False
         else:
             self.log_console_only("📘 Starting Facebook Page upload (Regular Video)...", level=logging.INFO)
             post_url = f"https://graph.facebook.com/{self.fb_page_id}/videos"
