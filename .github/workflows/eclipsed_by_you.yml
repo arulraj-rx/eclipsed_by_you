@@ -21,7 +21,7 @@ jobs:
 
     - name: 📦 Install dependencies
       run: |
-        pip install requests python-telegram-bot==13.15 dropbox pytz
+        pip install requests python-telegram-bot==13.15 dropbox pytz moviepy
 
     - name: 🔐 eclipsed_by_you_post
       env:
