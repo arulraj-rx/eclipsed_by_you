@@ -358,7 +358,7 @@ class DropboxToInstagramUploader:
             # Also post to Facebook Page if it's a REEL (using the same page token)
             if media_type == "REELS":
                 self.log_console_only("📘 Step 5: Starting Facebook Page upload...", level=logging.INFO)
-                facebook_success = self.post_to_facebook_page(temp_link, description, page_token, instagram_id)
+                facebook_success = self.post_to_facebook_page(dbx, file, caption, page_token)
             else:
                 facebook_success = True  # No Facebook post needed for images
             
@@ -399,10 +399,22 @@ class DropboxToInstagramUploader:
         duration = clip.duration
         return aspect_ratio, duration, temp_file.name
 
-    def post_to_facebook_page(self, video_url, caption, page_token=None, instagram_media_id=None, as_reel=None):
-        """Publish the video to the Facebook Page as a Reel or regular video. If as_reel is None, auto-detect based on aspect ratio."""
+    def get_dropbox_video_metadata(self, dbx, file):
+        """Get width, height, duration from Dropbox file metadata (no download)."""
+        metadata = dbx.files_get_metadata(file.path_lower, include_media_info=True)
+        if hasattr(metadata, 'media_info') and metadata.media_info:
+            info = metadata.media_info.get_metadata()
+            width = info.dimensions.width
+            height = info.dimensions.height
+            duration = info.duration / 1000.0  # ms to seconds
+            return width, height, duration
+        return None, None, None
+
+    def post_to_facebook_page(self, dbx, file, caption, page_token=None, as_reel=None):
+        """Publish the video to the Facebook Page as a Reel or regular video. Uses Dropbox metadata for decision."""
         import requests
         import os
+        video_url = dbx.files_get_temporary_link(file.path_lower).link
         if not self.fb_page_id:
             self.send_message("⚠️ Facebook Page ID not configured, skipping Facebook post", level=logging.WARNING)
             return False
@@ -414,25 +426,19 @@ class DropboxToInstagramUploader:
                 return False
         else:
             self.log_console_only("🔐 Using shared Facebook Page Access Token for Facebook upload", level=logging.INFO)
-        # Auto-detect orientation if as_reel is None
-        if as_reel is None:
-            try:
-                aspect_ratio, duration, temp_path = self.get_video_aspect_and_duration(video_url)
-                self.log_console_only(f"🎬 Video duration: {duration:.2f}s", level=logging.INFO)
-                self.log_console_only(f"📐 Video aspect ratio: {aspect_ratio:.3f}", level=logging.INFO)
-                if duration < 3 or duration > 90:
-                    self.send_message(f'❌ Video duration {duration:.2f}s not supported for Reels (must be 3–90s). Uploading as regular video.', level=logging.ERROR)
-                    as_reel = False
-                elif aspect_ratio > 1.2:
-                    self.log_console_only("🖼️ Detected landscape video. Will upload as regular video.", level=logging.INFO)
-                    as_reel = False
-                else:
-                    self.log_console_only("📱 Detected portrait/square video. Will upload as Reel.", level=logging.INFO)
-                    as_reel = True
-                os.unlink(temp_path)
-            except Exception as e:
-                self.send_message(f"⚠️ Could not check video aspect ratio/duration: {e}. Defaulting to regular video.", level=logging.WARNING)
+        # Use Dropbox metadata for decision
+        width, height, duration = self.get_dropbox_video_metadata(dbx, file)
+        self.log_console_only(f"Dropbox video metadata: width={width}, height={height}, duration={duration}", level=logging.INFO)
+        if width is not None and height is not None and duration is not None:
+            if height >= 960 and width >= 540 and duration >= 3:
+                as_reel = True
+                self.log_console_only("Uploading as Facebook Reel.", level=logging.INFO)
+            else:
                 as_reel = False
+                self.log_console_only("Uploading as regular Facebook video.", level=logging.INFO)
+        else:
+            self.log_console_only("Could not get Dropbox video metadata, defaulting to regular video.", level=logging.WARNING)
+            as_reel = False
         if as_reel:
             self.log_console_only("📘 Starting Facebook Page upload (Reels API, hosted file)...", level=logging.INFO)
             # 1. Start upload session
