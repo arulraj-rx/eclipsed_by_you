@@ -17,7 +17,7 @@ class DropboxToInstagramUploader:
     INSTAGRAM_REEL_STATUS_WAIT_TIME = 15
 
     def __init__(self):
-        self.script_name = "ink_wisps_post.py"
+        self.script_name = "eclipsed_by_you_post.py"
         self.ist = timezone('Asia/Kolkata')
         self.account_key = "eclipsed_by_you"
         self.schedule_file = "scheduler/config.json"
