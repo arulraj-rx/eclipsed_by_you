@@ -17,7 +17,7 @@ class DropboxToInstagramUploader:
     INSTAGRAM_REEL_STATUS_WAIT_TIME = 15
 
     def __init__(self):
-        self.script_name = "ink_wisps_post.py"
+        self.script_name = "eclipsed_by_you_post.py"
         self.ist = timezone('Asia/Kolkata')
         self.account_key = "eclipsed_by_you"
         self.schedule_file = "scheduler/config.json"
@@ -224,6 +224,12 @@ class DropboxToInstagramUploader:
             self.send_message(f"❌ Failed to read caption/description from config: {e}", level=logging.ERROR)
             return "✨ #eclipsed_by_you ✨", "✨ #eclipsed_by_you ✨"
 
+    def build_caption_with_filename(self, file, original_caption):
+        base_name = os.path.splitext(file.name)[0]
+        base_name = base_name.replace('_', ' ')
+        first_line = base_name[:0]
+        return f"{first_line}\n\n{original_caption}"
+
     def post_to_instagram(self, dbx, file, caption, description):
         name = file.name
         ext = name.lower()
@@ -256,6 +262,10 @@ class DropboxToInstagramUploader:
             self.send_message("❌ Instagram account not properly connected to Facebook page. Aborting upload.", level=logging.ERROR)
             return False
 
+        # Build captions with file name as first line
+        caption = self.build_caption_with_filename(file, caption)
+        description = self.build_caption_with_filename(file, description)
+
         upload_url = f"{self.INSTAGRAM_API_BASE}/{self.ig_id}/media"
         data = {
             "access_token": page_token,
@@ -263,7 +273,7 @@ class DropboxToInstagramUploader:
         }
 
         if media_type == "REELS":
-            data.update({"media_type": "REELS", "video_url": temp_link, "share_to_feed": "true"})
+            data.update({"media_type": "REELS", "video_url": temp_link, "share_to_feed": "false"})
         else:
             data["image_url"] = temp_link
 
@@ -355,12 +365,20 @@ class DropboxToInstagramUploader:
                 # Verify the post is live using the published media_id (not creation_id)
                 self.verify_instagram_post_by_media_id(instagram_id, page_token)
             
-            # Also post to Facebook Page if it's a REEL (using the same page token)
+            # Also post to Facebook Page for both REELS and IMAGE
             if media_type == "REELS":
                 self.log_console_only("📘 Step 5: Starting Facebook Page upload...", level=logging.INFO)
                 facebook_success = self.post_to_facebook_page(dbx, file, caption, page_token)
+            elif media_type == "IMAGE":
+                self.log_console_only("📘 Step 5: Starting Facebook Page upload for image...", level=logging.INFO)
+                facebook_success = self.post_to_facebook_page(dbx, file, caption, page_token)
+                # Telegram log for Facebook image upload
+                if facebook_success:
+                    self.send_message(f"✅ Facebook Page photo published successfully for file: {file.name}", level=logging.INFO)
+                else:
+                    self.send_message(f"❌ Facebook Page photo upload failed for file: {file.name}", level=logging.ERROR)
             else:
-                facebook_success = True  # No Facebook post needed for images
+                facebook_success = True  # No Facebook post needed for other types
             
             # Return success status for both platforms
             return True, media_type, instagram_success, facebook_success
@@ -401,12 +419,19 @@ class DropboxToInstagramUploader:
 
     def get_dropbox_video_metadata(self, dbx, file):
         """Get width, height, duration from Dropbox file metadata (no download)."""
+        from dropbox.files import VideoMetadata, PhotoMetadata
         metadata = dbx.files_get_metadata(file.path_lower, include_media_info=True)
         if hasattr(metadata, 'media_info') and metadata.media_info:
             info = metadata.media_info.get_metadata()
-            width = info.dimensions.width
-            height = info.dimensions.height
-            duration = info.duration / 1000.0  # ms to seconds
+            width = None
+            height = None
+            if getattr(info, 'dimensions', None) is not None:
+                width = info.dimensions.width
+                height = info.dimensions.height
+            if isinstance(info, VideoMetadata):
+                duration = info.duration / 1000.0  # ms to seconds
+            else:
+                duration = None
             return width, height, duration
         return None, None, None
 
@@ -414,7 +439,7 @@ class DropboxToInstagramUploader:
         """Publish the video to the Facebook Page as a Reel or regular video. Uses Dropbox metadata for decision."""
         import requests
         import os
-        video_url = dbx.files_get_temporary_link(file.path_lower).link
+        media_url = dbx.files_get_temporary_link(file.path_lower).link
         if not self.fb_page_id:
             self.send_message("⚠️ Facebook Page ID not configured, skipping Facebook post", level=logging.WARNING)
             return False
@@ -428,16 +453,19 @@ class DropboxToInstagramUploader:
             self.log_console_only("🔐 Using shared Facebook Page Access Token for Facebook upload", level=logging.INFO)
         # Use Dropbox metadata for decision
         width, height, duration = self.get_dropbox_video_metadata(dbx, file)
-        decision_msg = f"\n📦 File: {file.name}\n📏 Width: {width}\n📏 Height: {height}\n⏱️ Duration: {duration}s"
-        if width is not None and height is not None and duration is not None:
-            if height >= 960 and width >= 540 and duration >= 3:
+        aspect_ratio = width / height if width and height else None
+        decision_msg = f"\n📦 File: {file.name}\n📏 Width: {width}\n📏 Height: {height}\n⏱️ Duration: {duration}s\n📐 Aspect Ratio: {aspect_ratio:.4f}" if aspect_ratio else f"\n📦 File: {file.name}\n📏 Width: {width}\n📏 Height: {height}\n⏱️ Duration: {duration}s\n📐 Aspect Ratio: N/A"
+        # Strict 9:16 check for Reels
+        if width is not None and height is not None and duration is not None and aspect_ratio is not None:
+            # Only allow strict 9:16 portrait (e.g., 1080x1920, 720x1280) for Facebook Reels
+            if height >= 960 and width >= 540 and abs(aspect_ratio - 0.5625) < 0.01:
                 as_reel = True
-                decision_msg += "\n🚀 Will upload as: Facebook Reel"
-                self.log_console_only("Uploading as Facebook Reel.", level=logging.INFO)
+                decision_msg += "\n🚀 Will upload as: Facebook Reel (strict 9:16 portrait)"
+                self.log_console_only("✅ Strict 9:16 portrait detected. Will upload as Facebook Reel.", level=logging.INFO)
             else:
                 as_reel = False
-                decision_msg += "\n🚀 Will upload as: Regular Facebook Video"
-                self.log_console_only("Uploading as regular Facebook video.", level=logging.INFO)
+                decision_msg += f"\n🚀 Will upload as: Regular Facebook Video (aspect ratio: {aspect_ratio:.4f})"
+                self.log_console_only(f"❌ Not strict 9:16 portrait (aspect ratio: {aspect_ratio:.4f}). Will upload as regular Facebook video.", level=logging.INFO)
         else:
             self.log_console_only("Could not get Dropbox video metadata, defaulting to regular video.", level=logging.WARNING)
             as_reel = False
@@ -460,7 +488,7 @@ class DropboxToInstagramUploader:
             # 2. Upload video using hosted file (Dropbox temp link)
             headers = {
                 "Authorization": f"OAuth {page_token}",
-                "file_url": video_url
+                "file_url": media_url
             }
             upload_res = self.session.post(upload_url, headers=headers)
             if upload_res.status_code != 200:
@@ -494,53 +522,98 @@ class DropboxToInstagramUploader:
                 return False
         else:
             self.log_console_only("📘 Starting Facebook Page upload (Regular Video)...", level=logging.INFO)
-            post_url = f"https://graph.facebook.com/{self.fb_page_id}/videos"
-            data = {
-                "access_token": page_token,
-                "file_url": video_url,
-                "description": caption
-            }
-            self.log_console_only(f"🔐 Using page token for Facebook upload: {page_token[:20]}...", level=logging.INFO)
-            self.log_console_only(f"📄 Page ID for upload: {self.fb_page_id}", level=logging.INFO)
-            self.log_console_only(f"📹 Video URL: {video_url[:50]}...", level=logging.INFO)
-            self.log_console_only(f"📝 Caption: {caption[:50]}...", level=logging.INFO)
-            self.log_console_only("🔄 Skipping token verification for Facebook upload...", level=logging.INFO)
-            try:
-                self.log_console_only("🔄 Sending request to Facebook API...", level=logging.INFO)
-                self.log_console_only(f"📡 Facebook API URL: {post_url}", level=logging.INFO)
-                start_time = time.time()
-                res = self.session.post(post_url, data=data)
-                request_time = time.time() - start_time
-                self.log_console_only(f"⏱️ Facebook API request completed in {request_time:.2f} seconds", level=logging.INFO)
-                self.log_console_only(f"📊 Facebook response status: {res.status_code}", level=logging.INFO)
+            # Detect if file is an image
+            image_exts = ('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp')
+            is_image = file.name.lower().endswith(image_exts)
+            if is_image:
+                self.log_console_only("🖼️ Detected image file. Uploading as Facebook photo.", level=logging.INFO)
+                self.send_message(f"\n📦 File: {file.name}\n🖼️ Will upload as: Facebook Photo", level=logging.INFO)
+                post_url = f"https://graph.facebook.com/{self.fb_page_id}/photos"
+                self.log_console_only(f"🌐 Dropbox image URL: {media_url}", level=logging.INFO)
+                # Check if Dropbox link is accessible
                 try:
-                    response_json = res.json()
-                    self.log_console_only(f"📄 Facebook response: {json.dumps(response_json, indent=2)}", level=logging.INFO)
-                except:
-                    self.log_console_only(f"📄 Facebook response text: {res.text}", level=logging.INFO)
-                if res.status_code == 200:
-                    response_data = res.json()
-                    video_id = response_data.get("id", "Unknown")
-                    self.send_message(f"✅ Facebook Page post published successfully!\n📘 Video ID: {video_id}\n📘 Page ID: {self.fb_page_id}")
-                    self.verify_facebook_post_by_video_id(video_id, page_token)
-                    return True
-                else:
-                    error_msg = res.json().get("error", {}).get("message", "Unknown error")
-                    error_code = res.json().get("error", {}).get("code", "N/A")
-                    error_subcode = res.json().get("error", {}).get("error_subcode", "N/A")
-                    error_type = res.json().get("error", {}).get("type", "N/A")
-                    self.send_message(f"❌ Facebook Page upload failed:", level=logging.ERROR)
-                    self.send_message(f"📘 Error: {error_msg}", level=logging.ERROR)
-                    self.send_message(f"📘 Code: {error_code}", level=logging.ERROR)
-                    self.send_message(f"📘 Subcode: {error_subcode}", level=logging.ERROR)
-                    self.send_message(f"📘 Type: {error_type}", level=logging.ERROR)
-                    self.send_message(f"📘 Status: {res.status_code}", level=logging.ERROR)
-                    self.send_message("⚠️ Facebook upload failed, but Instagram upload was successful", level=logging.WARNING)
+                    check_res = requests.get(media_url, timeout=10)
+                    if check_res.status_code == 200:
+                        self.log_console_only(f"✅ Dropbox link is accessible (status 200)", level=logging.INFO)
+                    else:
+                        self.log_console_only(f"❌ Dropbox link returned status {check_res.status_code}", level=logging.ERROR)
+                except Exception as e:
+                    self.log_console_only(f"❌ Exception checking Dropbox link: {e}", level=logging.ERROR)
+                data = {
+                    "access_token": page_token,
+                    "url": media_url,
+                    "caption": caption
+                }
+                try:
+                    self.log_console_only("🔄 Sending image upload request to Facebook API...", level=logging.INFO)
+                    self.log_console_only(f"📡 Facebook API URL: {post_url}", level=logging.INFO)
+                    res = self.session.post(post_url, data=data)
+                    self.log_console_only(f"📊 Facebook response status: {res.status_code}", level=logging.INFO)
+                    try:
+                        response_json = res.json()
+                        self.log_console_only(f"📄 Facebook response: {json.dumps(response_json, indent=2)}", level=logging.INFO)
+                    except:
+                        self.log_console_only(f"📄 Facebook response text: {res.text}", level=logging.INFO)
+                    if res.status_code == 200:
+                        photo_id = res.json().get("id", "Unknown")
+                        self.send_message(f"✅ Facebook Page photo published successfully!\n🖼️ Photo ID: {photo_id}\n📘 Page ID: {self.fb_page_id}")
+                        return True
+                    else:
+                        error_msg = res.json().get("error", {}).get("message", "Unknown error")
+                        self.send_message(f"❌ Facebook Page photo upload failed: {error_msg}", level=logging.ERROR)
+                        return False
+                except Exception as e:
+                    self.send_message(f"❌ Facebook Page photo upload exception:\n🖼️ Error: {str(e)}", level=logging.ERROR)
                     return False
-            except Exception as e:
-                self.send_message(f"❌ Facebook Page upload exception:\n📘 Error: {str(e)}", level=logging.ERROR)
-                self.send_message("⚠️ Facebook upload exception, but Instagram upload was successful", level=logging.WARNING)
-                return False
+            else:
+                self.log_console_only("📘 Starting Facebook Page upload (Regular Video)...", level=logging.INFO)
+                post_url = f"https://graph.facebook.com/{self.fb_page_id}/videos"
+                data = {
+                    "access_token": page_token,
+                    "file_url": media_url,
+                    "description": caption
+                }
+                self.log_console_only(f"🔐 Using page token for Facebook upload: {page_token[:20]}...", level=logging.INFO)
+                self.log_console_only(f"📄 Page ID for upload: {self.fb_page_id}", level=logging.INFO)
+                self.log_console_only(f"📹 Video URL: {media_url[:50]}...", level=logging.INFO)
+                self.log_console_only(f"📝 Caption: {caption[:50]}...", level=logging.INFO)
+                self.log_console_only("🔄 Skipping token verification for Facebook upload...", level=logging.INFO)
+                try:
+                    self.log_console_only("🔄 Sending request to Facebook API...", level=logging.INFO)
+                    self.log_console_only(f"📡 Facebook API URL: {post_url}", level=logging.INFO)
+                    start_time = time.time()
+                    res = self.session.post(post_url, data=data)
+                    request_time = time.time() - start_time
+                    self.log_console_only(f"⏱️ Facebook API request completed in {request_time:.2f} seconds", level=logging.INFO)
+                    self.log_console_only(f"📊 Facebook response status: {res.status_code}", level=logging.INFO)
+                    try:
+                        response_json = res.json()
+                        self.log_console_only(f"📄 Facebook response: {json.dumps(response_json, indent=2)}", level=logging.INFO)
+                    except:
+                        self.log_console_only(f"📄 Facebook response text: {res.text}", level=logging.INFO)
+                    if res.status_code == 200:
+                        response_data = res.json()
+                        video_id = response_data.get("id", "Unknown")
+                        self.send_message(f"✅ Facebook Page post published successfully!\n📘 Video ID: {video_id}\n📘 Page ID: {self.fb_page_id}")
+                        self.verify_facebook_post_by_video_id(video_id, page_token)
+                        return True
+                    else:
+                        error_msg = res.json().get("error", {}).get("message", "Unknown error")
+                        error_code = res.json().get("error", {}).get("code", "N/A")
+                        error_subcode = res.json().get("error", {}).get("error_subcode", "N/A")
+                        error_type = res.json().get("error", {}).get("type", "N/A")
+                        self.send_message(f"❌ Facebook Page upload failed:", level=logging.ERROR)
+                        self.send_message(f"📘 Error: {error_msg}", level=logging.ERROR)
+                        self.send_message(f"📘 Code: {error_code}", level=logging.ERROR)
+                        self.send_message(f"📘 Subcode: {error_subcode}", level=logging.ERROR)
+                        self.send_message(f"📘 Type: {error_type}", level=logging.ERROR)
+                        self.send_message(f"📘 Status: {res.status_code}", level=logging.ERROR)
+                        self.send_message("⚠️ Facebook upload failed, but Instagram upload was successful", level=logging.WARNING)
+                        return False
+                except Exception as e:
+                    self.send_message(f"❌ Facebook Page upload exception:\n📘 Error: {str(e)}", level=logging.ERROR)
+                    self.send_message("⚠️ Facebook upload exception, but Instagram upload was successful", level=logging.WARNING)
+                    return False
 
     def authenticate_dropbox(self):
         """Authenticate with Dropbox and return the client."""
@@ -626,8 +699,10 @@ class DropboxToInstagramUploader:
         # Final summary with remaining files count
         if media_type == "REELS":
             self.log_console_only(f"📊 Final Status: Instagram {'✅' if instagram_success else '❌'} | Facebook {'✅' if facebook_success else '❌'} | 📦 Remaining files: {remaining_files}", level=logging.INFO)
+        elif media_type == "IMAGE":
+            self.log_console_only(f"📊 Final Status: Instagram {'✅' if instagram_success else '❌'} | Facebook {'✅' if facebook_success else '❌'} (image) | 📦 Remaining files: {remaining_files}", level=logging.INFO)
         else:
-            self.log_console_only(f"📊 Final Status: Instagram {'✅' if instagram_success else '❌'} | Facebook N/A (image) | 📦 Remaining files: {remaining_files}", level=logging.INFO)
+            self.log_console_only(f"📊 Final Status: Instagram {'✅' if instagram_success else '❌'} | Facebook N/A | 📦 Remaining files: {remaining_files}", level=logging.INFO)
         
         # Return overall success (Instagram success is primary)
         return instagram_success
