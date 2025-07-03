@@ -428,22 +428,16 @@ class DropboxToInstagramUploader:
             self.log_console_only("🔐 Using shared Facebook Page Access Token for Facebook upload", level=logging.INFO)
         # Use Dropbox metadata for decision
         width, height, duration = self.get_dropbox_video_metadata(dbx, file)
-        aspect_ratio = width / height if width and height else None
-        decision_msg = (
-            f"\n📦 File: {file.name}\n📏 Width: {width}\n📏 Height: {height}\n⏱️ Duration: {duration}s\n📐 Aspect Ratio: {aspect_ratio:.4f}"
-            if aspect_ratio
-            else f"\n📦 File: {file.name}\n📏 Width: {width}\n📏 Height: {height}\n⏱️ Duration: {duration}s\n📐 Aspect Ratio: N/A"
-        )
-        # Strict 9:16 check for Reels
-        if width is not None and height is not None and duration is not None and aspect_ratio is not None:
-            if height >= 960 and width >= 540 and duration >= 3 and abs(aspect_ratio - 0.5625) < 0.01:
+        decision_msg = f"\n📦 File: {file.name}\n📏 Width: {width}\n📏 Height: {height}\n⏱️ Duration: {duration}s"
+        if width is not None and height is not None and duration is not None:
+            if height >= 960 and width >= 540 and duration >= 3:
                 as_reel = True
-                decision_msg += "\n🚀 Will upload as: Facebook Reel (strict 9:16)"
-                self.log_console_only("Uploading as Facebook Reel (strict 9:16).", level=logging.INFO)
+                decision_msg += "\n🚀 Will upload as: Facebook Reel"
+                self.log_console_only("Uploading as Facebook Reel.", level=logging.INFO)
             else:
                 as_reel = False
-                decision_msg += "\n🚀 Will upload as: Regular Facebook Video (not strict 9:16)"
-                self.log_console_only("Uploading as regular Facebook video (not strict 9:16).", level=logging.INFO)
+                decision_msg += "\n🚀 Will upload as: Regular Facebook Video"
+                self.log_console_only("Uploading as regular Facebook video.", level=logging.INFO)
         else:
             self.log_console_only("Could not get Dropbox video metadata, defaulting to regular video.", level=logging.WARNING)
             as_reel = False
