@@ -382,11 +382,27 @@ class DropboxToInstagramUploader:
             return False
         return 0.5625 <= aspect_ratio <= 1.7778
 
-    def post_to_facebook_page(self, video_url, caption, page_token=None, instagram_media_id=None, as_reel=True):
-        """Publish the video to the Facebook Page as a Reel or regular video."""
+    def get_video_aspect_and_duration(self, video_url):
+        """Download video to temp file, return (aspect_ratio, duration, temp_file_path)."""
         import tempfile
-        import shutil
         import requests
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
+        with requests.get(video_url, stream=True) as r:
+            r.raise_for_status()
+            for chunk in r.iter_content(chunk_size=8192):
+                temp_file.write(chunk)
+        temp_file.close()
+        from moviepy.editor import VideoFileClip
+        clip = VideoFileClip(temp_file.name)
+        width, height = clip.size
+        aspect_ratio = width / height
+        duration = clip.duration
+        return aspect_ratio, duration, temp_file.name
+
+    def post_to_facebook_page(self, video_url, caption, page_token=None, instagram_media_id=None, as_reel=None):
+        """Publish the video to the Facebook Page as a Reel or regular video. If as_reel is None, auto-detect based on aspect ratio."""
+        import requests
+        import os
         if not self.fb_page_id:
             self.send_message("⚠️ Facebook Page ID not configured, skipping Facebook post", level=logging.WARNING)
             return False
@@ -398,23 +414,27 @@ class DropboxToInstagramUploader:
                 return False
         else:
             self.log_console_only("🔐 Using shared Facebook Page Access Token for Facebook upload", level=logging.INFO)
+        # Auto-detect orientation if as_reel is None
+        if as_reel is None:
+            try:
+                aspect_ratio, duration, temp_path = self.get_video_aspect_and_duration(video_url)
+                self.log_console_only(f"🎬 Video duration: {duration:.2f}s", level=logging.INFO)
+                self.log_console_only(f"📐 Video aspect ratio: {aspect_ratio:.3f}", level=logging.INFO)
+                if duration < 3 or duration > 90:
+                    self.send_message(f'❌ Video duration {duration:.2f}s not supported for Reels (must be 3–90s). Uploading as regular video.', level=logging.ERROR)
+                    as_reel = False
+                elif aspect_ratio > 1.2:
+                    self.log_console_only("🖼️ Detected landscape video. Will upload as regular video.", level=logging.INFO)
+                    as_reel = False
+                else:
+                    self.log_console_only("📱 Detected portrait/square video. Will upload as Reel.", level=logging.INFO)
+                    as_reel = True
+                os.unlink(temp_path)
+            except Exception as e:
+                self.send_message(f"⚠️ Could not check video aspect ratio/duration: {e}. Defaulting to regular video.", level=logging.WARNING)
+                as_reel = False
         if as_reel:
             self.log_console_only("📘 Starting Facebook Page upload (Reels API, hosted file)...", level=logging.INFO)
-            # Try to check aspect ratio and duration using moviepy (download to temp file for analysis only)
-            try:
-                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
-                with requests.get(video_url, stream=True) as r:
-                    r.raise_for_status()
-                    for chunk in r.iter_content(chunk_size=8192):
-                        temp_file.write(chunk)
-                temp_file.close()
-                if not self.is_supported_aspect_ratio(temp_file.name):
-                    self.send_message("❌ Video aspect ratio or duration not supported for Facebook Reels. Skipping upload.", level=logging.ERROR)
-                    os.unlink(temp_file.name)
-                    return False
-                os.unlink(temp_file.name)
-            except Exception as e:
-                self.send_message(f"⚠️ Could not check video aspect ratio/duration: {e}. Proceeding with upload.", level=logging.WARNING)
             # 1. Start upload session
             start_url = f"https://graph.facebook.com/v23.0/{self.fb_page_id}/video_reels"
             start_data = {"upload_phase": "start", "access_token": page_token}
@@ -450,6 +470,13 @@ class DropboxToInstagramUploader:
                 fb_video_id = response_data.get("id", video_id)
                 self.send_message(f"✅ Facebook Reel published successfully!\n📘 Video ID: {fb_video_id}\n📘 Page ID: {self.fb_page_id}")
                 self.verify_facebook_post_by_video_id(fb_video_id, page_token)
+                # Fetch and log the list of Reels for the Page
+                try:
+                    reels_url = f'https://graph.facebook.com/v23.0/{self.fb_page_id}/video_reels?access_token={page_token}'
+                    reels_res = self.session.get(reels_url)
+                    self.log_console_only(f'📄 Reels list response: {reels_res.text}', level=logging.INFO)
+                except Exception as e:
+                    self.log_console_only(f'⚠️ Could not fetch Reels list: {e}', level=logging.WARNING)
                 return True
             else:
                 self.send_message(f"❌ Facebook Reels publish failed: {finish_res.text}", level=logging.ERROR)
