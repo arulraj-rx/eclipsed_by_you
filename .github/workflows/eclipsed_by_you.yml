@@ -4,17 +4,17 @@ on:
   workflow_dispatch:  # Manual run button
   
   schedule:
-    # Morning (8 AM – 10 AM IST)
-    - cron: '30 2 * * *'   # 08:00 AM IST
-    - cron: '30 4 * * *'   # 10:00 AM IST
+    # Early Morning (3 AM IST)
+    - cron: '30 21 * * *'  # 03:00 AM IST
 
-    # Late Morning / Early Afternoon (11 AM – 1 PM IST)
-   
-    - cron: '30 7 * * *'   # 01:00 PM IST
+    # Morning (9 AM IST)
+    - cron: '30 3 * * *'   # 09:00 AM IST
 
-    # Evening Slot (6 PM – 9 PM IST)
+    # Noon (12 PM IST)
+    - cron: '30 6 * * *'   # 12:00 PM IST
+
+    # Evening (6 PM IST)
     - cron: '30 12 * * *'  # 06:00 PM IST
-    - cron: '30 15 * * *'  # 09:00 PM IST
 
 
 jobs:
