@@ -4,14 +4,8 @@ on:
   workflow_dispatch:  # Manual run button
   
   schedule:
-  - cron: '30 0 * * *'   # 06:00 AM IST  
-  - cron: '0 2 * * *'    # 07:30 AM IST  
-  - cron: '45 4 * * *'   # 09:15 AM IST  
-  - cron: '15 9 * * *'   # 02:15 PM IST  
-  - cron: '30 11 * * *'  # 04:00 PM IST  
-  - cron: '0 14 * * *'   # 07:30 PM IST  
-  - cron: '45 17 * * *'  # 11:15 PM IST  
-  - cron: '15 21 * * *'  # 02:45 AM IST (next day)
+  - cron: '30 0 * * *'   # 06:00 AM IST
+  - cron: '45 10 * * *'  # 04:15 PM IST
 
 
 jobs:
@@ -52,3 +46,4 @@ jobs:
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 
       run: python eclipsed_by_you_post.py
+
