@@ -1072,6 +1072,12 @@ class DropboxToInstagramUploader:
                 else:
                     if attempt < 9:
                         time.sleep(5)
+            # Only final failure Telegram log if all attempts fail
+            self.send_message(
+                "❌ Could not verify Facebook video post is live after 10 attempts.",
+                level=logging.ERROR
+            )
+            return False
         except Exception as e:
             self.send_message(f"❌ Exception verifying Facebook video post: {e}", level=logging.ERROR)
             return False
